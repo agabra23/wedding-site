@@ -16,14 +16,14 @@ public static class GuestLookup
             var first = Names.Normalize(req.FirstName);
             var last = Names.Normalize(req.LastName);
 
-            var container = cosmos.GetContainer(app.Configuration["CosmosDatabase"] ?? "wedding", app.Configuration["PartiesContainer"] ?? "parties");
+            var container = cosmos.Container(app.Configuration);
             var query = new QueryDefinition(
                 "SELECT * FROM c WHERE EXISTS(SELECT VALUE g FROM g IN c.guests WHERE g.firstNameNormalized = @f AND g.lastNameNormalized = @l)")
                 .WithParameter("@f", first).WithParameter("@l", last);
             var it = container.GetItemQueryIterator<Party>(query, requestOptions: new QueryRequestOptions { PartitionKey = pk });
             while (it.HasMoreResults)
                 foreach (var party in await it.ReadNextAsync())
-                    return Results.Ok(new { party = PartyDto.From(party) });
+                    return Results.Ok(new { party = PartyDto.From(party), rsvpDeadline = await SettingsStore.GetRsvpDeadline(container) });
             return Results.NotFound();
         }).RequireAuthorization(Policies.Guest);
     }
