@@ -113,7 +113,7 @@ resource "azurerm_static_web_app" "site" {
   sku_size            = "Free"
 }
 
-# Dev copy of the site, served from its default *.azurestaticapps.net host (no custom domain).
+# Dev copy of the site, also served at dev.<domain> (custom domain and DNS below).
 # Deployed on every push to dev and talks to the dev API (ca-wedding-api-dev) and dev Cosmos account.
 resource "azurerm_static_web_app" "site_dev" {
   name                = "swa-wedding-dev"
@@ -128,6 +128,13 @@ resource "azurerm_static_web_app_custom_domain" "www" {
   domain_name       = "www.${var.domain}"
   validation_type   = "cname-delegation"
   depends_on        = [cloudflare_dns_record.www]
+}
+
+resource "azurerm_static_web_app_custom_domain" "dev" {
+  static_web_app_id = azurerm_static_web_app.site_dev.id
+  domain_name       = "dev.${var.domain}"
+  validation_type   = "cname-delegation"
+  depends_on        = [cloudflare_dns_record.dev]
 }
 
 resource "azurerm_static_web_app_custom_domain" "apex" {
@@ -455,7 +462,7 @@ resource "azurerm_container_app" "api_dev" {
       # Overrides both entries of the prod AllowedOrigins array in appsettings.json
       env {
         name  = "AllowedOrigins__0"
-        value = "https://${azurerm_static_web_app.site_dev.default_host_name}"
+        value = "https://dev.${var.domain}"
       }
       env {
         name  = "AllowedOrigins__1"
@@ -508,6 +515,15 @@ resource "cloudflare_dns_record" "www" {
   name    = "www.${var.domain}"
   type    = "CNAME"
   content = azurerm_static_web_app.site.default_host_name
+  ttl     = 1
+  proxied = false
+}
+
+resource "cloudflare_dns_record" "dev" {
+  zone_id = var.cloudflare_zone_id
+  name    = "dev.${var.domain}"
+  type    = "CNAME"
+  content = azurerm_static_web_app.site_dev.default_host_name
   ttl     = 1
   proxied = false
 }
