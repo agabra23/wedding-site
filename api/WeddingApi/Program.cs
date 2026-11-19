@@ -31,6 +31,7 @@ app.MapGet("/health", () => Results.Ok()).AllowAnonymous();
 app.MapAuth();
 
 app.MapGuestAdmin();
+app.MapPartyRsvp();
 app.MapLookup();
 
 app.Run();
