@@ -51,14 +51,57 @@ resource "azurerm_cosmosdb_sql_database" "db" {
   throughput          = 400 # shared; anything up to 1000 stays free
 }
 
+moved {
+  from = azurerm_cosmosdb_sql_container.parties["parties"]
+  to   = azurerm_cosmosdb_sql_container.parties
+}
+
 resource "azurerm_cosmosdb_sql_container" "parties" {
-  for_each            = toset(["parties", "parties-dev"])
-  name                = each.key
+  name                = "parties"
   resource_group_name = azurerm_resource_group.rg.name
   account_name        = azurerm_cosmosdb_account.cosmos.name
   database_name       = azurerm_cosmosdb_sql_database.db.name
   partition_key_paths = ["/pk"] # ADR-0001: one constant value for every document
   default_ttl         = -1      # TTL on, no default expiry: only Revocation documents set their own
+}
+
+# ---------- Cosmos DB for local dev (serverless, separate account: ADR-0003) ----------
+# No free_tier_enabled: only one free-tier account is allowed per subscription and prod has it.
+resource "azurerm_cosmosdb_account" "cosmos_dev" {
+  name                = "${var.cosmos_account_name}-dev"
+  location            = azurerm_resource_group.rg.location
+  resource_group_name = azurerm_resource_group.rg.name
+  offer_type          = "Standard"
+  kind                = "GlobalDocumentDB"
+
+  capabilities {
+    name = "EnableServerless"
+  }
+
+  consistency_policy {
+    consistency_level = "Session"
+  }
+
+  geo_location {
+    location          = azurerm_resource_group.rg.location
+    failover_priority = 0
+  }
+}
+
+resource "azurerm_cosmosdb_sql_database" "db_dev" {
+  name                = "wedding"
+  resource_group_name = azurerm_resource_group.rg.name
+  account_name        = azurerm_cosmosdb_account.cosmos_dev.name
+  # no throughput: serverless rejects it
+}
+
+resource "azurerm_cosmosdb_sql_container" "parties_dev" {
+  name                = "parties"
+  resource_group_name = azurerm_resource_group.rg.name
+  account_name        = azurerm_cosmosdb_account.cosmos_dev.name
+  database_name       = azurerm_cosmosdb_sql_database.db_dev.name
+  partition_key_paths = ["/pk"] # ADR-0001
+  default_ttl         = -1      # same as prod: only Revocation documents set their own expiry
 }
 
 # ---------- Static Web App (Free) ----------
