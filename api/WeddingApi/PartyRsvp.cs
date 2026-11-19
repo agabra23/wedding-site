@@ -18,7 +18,10 @@ public static class PartyRsvp
                 || answers.Any(a => string.IsNullOrEmpty(a.GuestId) || !Allowed.Contains(a.Rsvp)))
                 return Results.BadRequest("Answer attending or declined for at least one guest.");
 
-            var container = cosmos.GetContainer(app.Configuration["CosmosDatabase"] ?? "wedding", app.Configuration["PartiesContainer"] ?? "parties");
+            var container = cosmos.Container(app.Configuration);
+            if (SettingsStore.IsPast(await SettingsStore.GetRsvpDeadline(container), clock))
+                return Results.Json("The RSVP deadline has passed.", statusCode: StatusCodes.Status403Forbidden);
+
             Party party;
             string etag;
             try

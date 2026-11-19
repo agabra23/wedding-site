@@ -59,7 +59,7 @@ public static class GuestAdmin
 
         async Task<List<Party>> AllParties(Container container)
         {
-            var it = container.GetItemQueryIterator<Party>("SELECT * FROM c",
+            var it = container.GetItemQueryIterator<Party>("SELECT * FROM c WHERE IS_DEFINED(c.guests)",
                 requestOptions: new QueryRequestOptions { PartitionKey = pk });
             var all = new List<Party>();
             while (it.HasMoreResults) all.AddRange(await it.ReadNextAsync());
