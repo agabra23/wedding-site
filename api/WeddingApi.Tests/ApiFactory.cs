@@ -1,3 +1,4 @@
+using System.Net.Http.Json;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Azure.Cosmos;
@@ -27,6 +28,9 @@ public sealed class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
     public string Database { get; } = "test-" + Guid.NewGuid().ToString("N");
     public const string Container = "parties";
 
+    public const string EventPassword = "test-event-password";
+    public const string AdminPassword = "test-admin-password";
+
     /// <summary>Swap-in clock: call SetUtcNow / Advance to control the API's current time.</summary>
     public FakeTimeProvider Clock { get; } = new(new DateTimeOffset(2027, 1, 1, 12, 0, 0, TimeSpan.Zero));
 
@@ -37,7 +41,28 @@ public sealed class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
         builder.UseSetting("CosmosGatewayMode", "true");
         builder.UseSetting("CosmosDatabase", Database);
         builder.UseSetting("PartiesContainer", Container);
+        builder.UseSetting("EventPassword", EventPassword);
+        builder.UseSetting("AdminPassword", AdminPassword);
+        builder.UseSetting("TokenSigningKey", "test-signing-key-0123456789-abcdefghij");
+        // Generous by default so tests can sign in freely; the rate-limit test overrides it
+        builder.UseSetting("AuthRequestsPerMinute", "1000");
         builder.ConfigureServices(s => s.Replace(ServiceDescriptor.Singleton<TimeProvider>(Clock)));
+    }
+
+    /// <summary>Signs in with the password and returns a client carrying the bearer token.</summary>
+    public async Task<HttpClient> SignedInClientAsync(string password) => WithToken(CreateClient(), await TokenAsync(password));
+
+    public async Task<string> TokenAsync(string password)
+    {
+        var res = await CreateClient().PostAsJsonAsync("/auth", new AuthRequest(password));
+        res.EnsureSuccessStatusCode();
+        return (await res.Content.ReadFromJsonAsync<AuthResponse>())!.Token;
+    }
+
+    public static HttpClient WithToken(HttpClient client, string token)
+    {
+        client.DefaultRequestHeaders.Authorization = new("Bearer", token);
+        return client;
     }
 
     CosmosClient NewAdminClient() => new(connection, new CosmosClientOptions { ConnectionMode = ConnectionMode.Gateway });
