@@ -33,6 +33,7 @@ app.MapAuth();
 app.MapGuestAdmin();
 app.MapSettingsAdmin();
 app.MapPartyRsvp();
+app.MapAdminRsvp();
 app.MapLookup();
 
 app.Run();
