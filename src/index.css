@@ -25,6 +25,7 @@
   --color-accent: #a8a29e; /* highlights, decoration */
   --color-heading: #b91c1c; /* headings, logo */
   --color-border: #e3d6bf; /* dividers, outlines */
+  --color-error: #b91c1c; /* error messages */
 
   /* Fonts */
   --font-display: "Jimmy Script", "Pinyon Script", cursive; /* headings, logo */
@@ -86,9 +87,19 @@
     @apply bg-primary text-on-primary inline-flex min-h-11 items-center justify-center rounded px-6 py-2 outline-none transition duration-200 ease-out;
     @apply hover:opacity-80 focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background active:scale-[0.98] disabled:opacity-50;
   }
-  .input {
+  .input,
+  .select {
     @apply border-border bg-surface text-ink placeholder:text-ink-muted block min-h-11 w-full rounded border px-3 py-2 outline-none transition duration-200 ease-out;
     @apply hover:border-accent focus:border-primary focus:ring-2 focus:ring-primary/20 disabled:opacity-50;
+  }
+  .select {
+    @apply appearance-none bg-no-repeat pr-10;
+    background-image: linear-gradient(45deg, transparent 50%, currentColor 50%),
+      linear-gradient(135deg, currentColor 50%, transparent 50%);
+    background-position:
+      calc(100% - 1.25rem) 50%,
+      calc(100% - 0.9rem) 50%;
+    background-size: 0.35rem 0.35rem;
   }
   .choice {
     @apply inline-flex min-h-11 items-center gap-3;
