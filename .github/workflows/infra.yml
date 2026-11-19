@@ -1,7 +1,7 @@
 name: infra
 
 # PR into main  -> terraform plan (read-only, uses the federated "pull_request" credential)
-# push to main  -> terraform apply (uses the federated "environment:production" credential)
+# push to main  -> terraform apply (uses the federated "environment:Production" credential)
 on:
   pull_request:
     branches: [main]
@@ -19,8 +19,8 @@ permissions:
 env:
   ARM_USE_OIDC: "true"
   ARM_USE_AZUREAD: "true"
-  ARM_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
-  ARM_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+  ARM_CLIENT_ID: ${{ vars.ARM_CLIENT_ID }}
+  ARM_TENANT_ID: ${{ vars.ARM_TENANT_ID }}
   ARM_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
   TF_VAR_cloudflare_api_token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
   TF_IN_AUTOMATION: "true"
@@ -50,7 +50,7 @@ jobs:
   terraform-apply:
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
-    environment: production
+    environment: Production
     concurrency:
       group: terraform-apply
       cancel-in-progress: false

@@ -15,17 +15,17 @@ api/WeddingApi/   ASP.NET Core API + Dockerfile
 | --- | --- | --- |
 | PR into `dev` or `main`, push to `dev` | `ci` | site build, API build + docker build, terraform fmt/validate |
 | PR into `main` touching `infra/` | `infra` | `terraform plan` (federated cred: `pull_request`) |
-| Push to `main` touching `infra/` | `infra` | `terraform apply` (environment `production`) |
-| Push to `main` touching site code | `site` | build + deploy Static Web App (environment `production`) |
-| Push to `main` touching `api/` | `api` | build image to GHCR + update Container App (environment `production`) |
+| Push to `main` touching `infra/` | `infra` | `terraform apply` (environment `Production`) |
+| Push to `main` touching site code | `site` | build + deploy Static Web App (environment `Production`) |
+| Push to `main` touching `api/` | `api` | build image to GHCR + update Container App (environment `Production`) |
 
 Flow: feature branch → PR into `dev` → PR from `dev` into `main` → deploy.
 
 ## GitHub setup (one time)
 
-Repo variables (not secret): `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID`.
+Repo variables (not secret): `ARM_CLIENT_ID`, `ARM_TENANT_ID`, `AZURE_SUBSCRIPTION_ID`.
 Repo secret: `CLOUDFLARE_API_TOKEN`.
-Environment: `production` (optionally add yourself as a required reviewer).
+Environment: `Production` (optionally add yourself as a required reviewer).
 
 ## Local dev
 
