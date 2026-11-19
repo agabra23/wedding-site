@@ -10,7 +10,7 @@ terraform {
 
   backend "azurerm" {
     resource_group_name  = "rg-tfstate"
-    storage_account_name = "sttfstatewedab" # TODO: yours from Step 1
+    storage_account_name = "sttfstatewedab"
     container_name       = "tfstate"
     key                  = "wedding.tfstate"
     use_azuread_auth     = true
