@@ -2,6 +2,7 @@ using System.Net;
 using Microsoft.Azure.Cosmos;
 
 public record RenameGuestRequest(string? FirstName, string? LastName);
+public record MoveGuestRequest(string? PartyId);
 
 public static class GuestEdit
 {
@@ -95,6 +96,57 @@ public static class GuestEdit
             {
                 return Results.Conflict("This party was just changed elsewhere. Please try again.");
             }
+        }).RequireAuthorization(Policies.Admin);
+
+        app.MapPost("/admin/guests/{guestId}/move", async (string guestId, MoveGuestRequest? req, CosmosClient cosmos) =>
+        {
+            var container = cosmos.Container(app.Configuration);
+            var (source, sourceEtag) = await FindParty(container, guestId);
+            if (source is null) return Results.NotFound();
+
+            var destId = string.IsNullOrWhiteSpace(req?.PartyId) ? null : req.PartyId;
+            if (destId == source.Id) return Results.Ok(PartyDto.From(source));
+
+            Party? dest = null;
+            string? destEtag = null;
+            if (destId is not null)
+            {
+                try
+                {
+                    var read = await container.ReadItemAsync<Party>(destId, pk);
+                    dest = read.Resource;
+                    destEtag = read.ETag;
+                }
+                catch (CosmosException e) when (e.StatusCode == HttpStatusCode.NotFound)
+                {
+                    return Results.NotFound();
+                }
+            }
+
+            var guest = source.Guests.First(g => g.Id == guestId);
+            var remaining = source.Guests.Where(g => g.Id != guestId).ToList();
+            var result = dest is null
+                ? new Party(Guid.NewGuid().ToString("N"), [guest])
+                : dest with { Guests = [.. dest.Guests, guest] };
+
+            // ADR-0001: one transactional batch, so the Guest is never in two Parties or none
+            var batch = container.CreateTransactionalBatch(pk);
+            var sourceOptions = new TransactionalBatchItemRequestOptions { IfMatchEtag = sourceEtag };
+            if (remaining.Count == 0)
+                batch.DeleteItem(source.Id, sourceOptions);
+            else
+                batch.ReplaceItem(source.Id, source with { Guests = remaining }, sourceOptions);
+            if (dest is null)
+                batch.CreateItem(result);
+            else
+                batch.ReplaceItem(result.Id, result, new TransactionalBatchItemRequestOptions { IfMatchEtag = destEtag });
+
+            using var response = await batch.ExecuteAsync();
+            if (response.IsSuccessStatusCode) return Results.Ok(PartyDto.From(result));
+            if (response.StatusCode is HttpStatusCode.PreconditionFailed or HttpStatusCode.Conflict
+                || Enumerable.Range(0, response.Count).Any(i => response[i].StatusCode == HttpStatusCode.PreconditionFailed))
+                return Results.Conflict("This party was just changed elsewhere. Please try again.");
+            return Results.Problem($"Move failed ({(int)response.StatusCode}).");
         }).RequireAuthorization(Policies.Admin);
     }
 }
