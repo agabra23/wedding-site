@@ -30,7 +30,7 @@ Repo variables (not secret): `ARM_CLIENT_ID`, `ARM_TENANT_ID`, `AZURE_SUBSCRIPTI
 Repo secret: `CLOUDFLARE_API_TOKEN`.
 Environments: `Production` (optionally add yourself as a required reviewer) and `Development` (no reviewers; created automatically on first use). Terraform creates the federated credential for `Development`, but the first apply that adds it must run from `main` or locally, since a `dev` run can't sign in before it exists.
 
-The dev site lives at the `swa_dev_url` Terraform output (`*.azurestaticapps.net`, no custom domain) and uses the dev Cosmos account and its own Key Vault secrets (`event-password-dev`, `admin-password-dev`, `token-signing-key-dev`); set the real dev passwords the same way as prod.
+The dev site lives at `https://dev.thegabras2027.com` (Cloudflare CNAME plus SWA custom domain, both in Terraform; the `*.azurestaticapps.net` host also works). The dev API stays on its generated Azure host: the site build looks it up at deploy time, so it needs no DNS record of its own and uses the dev Cosmos account and its own Key Vault secrets (`event-password-dev`, `admin-password-dev`, `token-signing-key-dev`); set the real dev passwords the same way as prod.
 
 ## Local dev
 
