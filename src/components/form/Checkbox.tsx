@@ -1,0 +1,13 @@
+import type { ComponentProps, ReactNode } from 'react'
+
+type Props = Omit<ComponentProps<'input'>, 'type'> & { label: ReactNode; labelClassName?: string }
+
+/** `className` styles the control; `labelClassName` styles the wrapping label. */
+export default function Checkbox({ label, className = '', labelClassName = '', ...props }: Props) {
+  return (
+    <label className={`choice ${labelClassName}`}>
+      <input type="checkbox" className={`checkbox ${className}`} {...props} />
+      <span>{label}</span>
+    </label>
+  )
+}

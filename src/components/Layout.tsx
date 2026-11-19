@@ -100,7 +100,7 @@ export default function Layout() {
     'absolute left-0 h-[1.5px] w-full rounded-full bg-current transition-all duration-300 ease-out'
 
   return (
-    <div className="min-h-screen">
+    <div className="flex min-h-screen flex-col overflow-x-clip">
       <header className="border-border bg-surface relative z-20 border-b">
         <div className="mx-auto flex max-w-4xl items-center justify-between px-4 py-4">
           <Link to="/" className="font-display text-xl">
@@ -173,9 +173,46 @@ export default function Layout() {
         }`}
       />
 
-      <main className="mx-auto max-w-4xl px-4">
+      <main className="mx-auto w-full max-w-4xl flex-1 px-4">
         <Outlet />
       </main>
+
+      <footer className="border-border bg-surface mt-16 border-t">
+        <div className="mx-auto flex max-w-4xl flex-col items-center gap-6 px-4 py-10 text-center">
+          <Link to="/" className="font-display text-heading text-3xl normal-case">
+            Our Wedding
+          </Link>
+          <p className="text-ink-muted normal-case">We can't wait to celebrate with you.</p>
+          <nav aria-label="Footer">
+            <ul className="flex flex-wrap justify-center gap-x-6 gap-y-1">
+              {NAV_ITEMS.map((item) => (
+                <li key={item.to}>
+                  <NavLink
+                    to={item.to}
+                    end
+                    className={({ isActive }) =>
+                      `inline-block py-2 transition-colors duration-200 ${
+                        isActive ? 'text-primary font-medium' : 'text-ink-muted hover:text-ink'
+                      }`
+                    }
+                  >
+                    {item.label}
+                  </NavLink>
+                </li>
+              ))}
+            </ul>
+          </nav>
+          <Link
+            to="/rsvp"
+            className="bg-primary text-on-primary rounded px-6 py-3 transition-opacity duration-200 hover:opacity-80"
+          >
+            RSVP
+          </Link>
+          <p className="text-ink-muted text-sm">
+            &copy; {new Date().getFullYear()} Our Wedding &middot; Made with love
+          </p>
+        </div>
+      </footer>
     </div>
   )
 }
