@@ -3,6 +3,9 @@ import type { AuthResponse, GuestName, LookupResponse, Party, Rsvp, RsvpAnswer, 
 
 export const signIn = (password: string) => request<AuthResponse>('POST', '/auth', { password })
 
+// #23
+export const logout = () => request<void>('POST', '/auth/logout')
+
 export const lookup = (firstName: string, lastName: string) =>
   request<LookupResponse>('POST', '/lookup', { firstName, lastName })
 

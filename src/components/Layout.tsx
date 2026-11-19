@@ -99,6 +99,8 @@ export default function Layout() {
   const [open, setOpen] = useState(false)
   const { pathname } = useLocation()
   const { role, signOut } = useSession()
+  // Admins always get a sign out; guests only in dev builds.
+  const canSignOut = role === 'admin' || import.meta.env.DEV
   const navItems = NAV_ITEMS.filter((i) => !i.adminOnly || role === 'admin')
 
   useEffect(() => setOpen(false), [pathname])
@@ -147,6 +149,13 @@ export default function Layout() {
                   </NavLink>
                 </li>
               ))}
+              {canSignOut && (
+                <li>
+                  <button type="button" onClick={signOut} className="text-ink-muted hover:text-ink transition-colors duration-200">
+                    Sign out
+                  </button>
+                </li>
+              )}
             </ul>
           </nav>
         </div>
@@ -174,6 +183,21 @@ export default function Layout() {
                   </NavLink>
                 </li>
               ))}
+              {canSignOut && (
+                <li
+                  className={`transition-all duration-300 ease-out ${open ? 'translate-y-0 opacity-100' : '-translate-y-2 opacity-0'}`}
+                  style={{ transitionDelay: open ? `${80 + navItems.length * 45}ms` : '0ms' }}
+                >
+                  <button type="button" onClick={signOut} className="text-ink-muted hover:bg-background hover:text-ink flex w-full items-center gap-3 rounded-xl px-3 py-3 transition-colors duration-200">
+                    <Icon>
+                      <path d="M10 4H5.5A1.5 1.5 0 0 0 4 5.5v13A1.5 1.5 0 0 0 5.5 20H10" />
+                      <path d="M15 8l4 4-4 4" />
+                      <path d="M19 12H9" />
+                    </Icon>
+                    Sign out
+                  </button>
+                </li>
+              )}
             </ul>
           </nav>
         </div>
@@ -222,13 +246,15 @@ export default function Layout() {
           >
             RSVP
           </Link>
-          <button
-            type="button"
-            onClick={signOut}
-            className="text-ink-muted hover:text-ink min-h-11 px-3 text-sm underline underline-offset-4 transition-colors duration-200"
-          >
-            Sign out
-          </button>
+          {canSignOut && (
+            <button
+              type="button"
+              onClick={signOut}
+              className="text-ink-muted hover:text-ink min-h-11 px-3 text-sm underline underline-offset-4 transition-colors duration-200"
+            >
+              Sign out
+            </button>
+          )}
           <p className="text-ink-muted text-sm">
             &copy; {new Date().getFullYear()} Our Wedding &middot; Made with love
           </p>

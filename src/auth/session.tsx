@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
-import { signIn as apiSignIn } from '../api/endpoints'
+import { logout, signIn as apiSignIn } from '../api/endpoints'
 import { setUnauthorizedHandler } from '../api/client'
 import type { Role } from '../api/types'
 import { loadSession, readExp, saveSession, type Stored } from './storage'
@@ -16,10 +16,18 @@ const Ctx = createContext<Session | null>(null)
 export function SessionProvider({ children }: { children: ReactNode }) {
   const [stored, setStored] = useState<Stored | null>(loadSession)
 
-  const signOut = useCallback(() => {
+  /** Forget the session locally (used on expiry and 401, where the token is already dead). */
+  const clear = useCallback(() => {
     saveSession(null)
     setStored(null)
   }, [])
+
+  /** Revoke the token on the API (best effort, see #23), then forget it. */
+  const signOut = useCallback(() => {
+    logout()
+      .catch(() => {})
+      .finally(clear)
+  }, [clear])
 
   const signIn = useCallback(async (password: string) => {
     const { role, token } = await apiSignIn(password)
@@ -29,17 +37,17 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   }, [])
 
   useEffect(() => {
-    setUnauthorizedHandler(signOut)
+    setUnauthorizedHandler(clear)
     return () => setUnauthorizedHandler(null)
-  }, [signOut])
+  }, [clear])
 
   // Sign out when the token expires while the page is open.
   useEffect(() => {
     if (!stored) return
     const ms = Math.min(stored.exp * 1000 - Date.now(), 2 ** 31 - 1)
-    const t = setTimeout(signOut, Math.max(ms, 0))
+    const t = setTimeout(clear, Math.max(ms, 0))
     return () => clearTimeout(t)
-  }, [stored, signOut])
+  }, [stored, clear])
 
   const value = useMemo<Session>(
     () => ({ role: stored?.role ?? null, token: stored?.token ?? null, signIn, signOut }),
