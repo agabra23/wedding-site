@@ -72,6 +72,7 @@ public class RsvpDeadlineTests(ApiFactory api) : IClassFixture<ApiFactory>
         await SetDeadline(api.Clock.GetUtcNow().AddDays(1).ToString("O"));
         Assert.Equal(HttpStatusCode.NoContent, (await Rsvp(p)).StatusCode);
 
+        var before = api.Clock.GetUtcNow();
         api.Clock.Advance(TimeSpan.FromDays(2));
         try
         {
@@ -81,7 +82,7 @@ public class RsvpDeadlineTests(ApiFactory api) : IClassFixture<ApiFactory>
         }
         finally
         {
-            api.Clock.Advance(TimeSpan.FromDays(-2));
+            api.Clock.SetUtcNow(before);
         }
     }
 
