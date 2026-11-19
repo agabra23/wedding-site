@@ -1,0 +1,3 @@
+# Shared passwords instead of an identity provider
+
+Every API endpoint except `/health` and `/auth` requires a token issued by `POST /auth`, which trades one of two shared secrets for a signed token: the Event Password gives the guest role (lasts 30 days), and the Admin Password gives the admin role (lasts 24 hours). We dropped the scaffolded Entra ID sign-in because guests have no accounts. A single password the couple shares is simpler to run than an app registration plus an email allowlist, and identity at the level of individual people isn't needed: anyone with the Event Password who knows a Guest's full name may RSVP for that Guest's Party. We accept that risk, and each Guest records who last changed their RSVP (guest or admin) and when.
