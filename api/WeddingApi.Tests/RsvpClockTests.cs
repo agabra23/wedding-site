@@ -23,7 +23,7 @@ public class RsvpClockTests(ApiFactory api) : IClassFixture<ApiFactory>
         await cosmos.GetContainer(api.Database, ApiFactory.Container)
             .CreateItemAsync(new Party("ABC", "Ada's party", null, [guest], null));
 
-        var client = api.CreateClient();
+        var client = await api.SignedInClientAsync(ApiFactory.EventPassword);
         var post = await client.PostAsJsonAsync("/rsvp/abc",
             new RsvpRequest(null, [new GuestAnswer("Ada", "yes", null)]));
         Assert.Equal(HttpStatusCode.NoContent, post.StatusCode);

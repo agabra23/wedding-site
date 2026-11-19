@@ -82,6 +82,12 @@ resource "azurerm_static_web_app_custom_domain" "apex" {
   validation_type   = "dns-txt-token"
 }
 
+# ---------- Token signing key (rotating it signs everyone out) ----------
+resource "random_password" "token_signing_key" {
+  length  = 64
+  special = false
+}
+
 # ---------- Container Apps: environment + always-warm API ----------
 resource "azurerm_container_app_environment" "env" {
   name                = "cae-wedding"
@@ -99,6 +105,22 @@ resource "azurerm_container_app" "api" {
   secret {
     name  = "cosmos-connection"
     value = azurerm_cosmosdb_account.cosmos.primary_sql_connection_string
+  }
+
+  # ADR-0002: shared passwords and the key that signs the tokens they trade for
+  secret {
+    name  = "event-password"
+    value = var.event_password
+  }
+
+  secret {
+    name  = "admin-password"
+    value = var.admin_password
+  }
+
+  secret {
+    name  = "token-signing-key"
+    value = random_password.token_signing_key.result
   }
 
   ingress {
@@ -125,6 +147,18 @@ resource "azurerm_container_app" "api" {
         secret_name = "cosmos-connection"
       }
       env {
+        name        = "EventPassword"
+        secret_name = "event-password"
+      }
+      env {
+        name        = "AdminPassword"
+        secret_name = "admin-password"
+      }
+      env {
+        name        = "TokenSigningKey"
+        secret_name = "token-signing-key"
+      }
+      env {
         name  = "PartiesContainer"
         value = "parties"
       }
@@ -146,45 +180,6 @@ resource "azurerm_container_app_custom_domain" "api" {
     # The free managed certificate is bound once by CLI (see README)
     ignore_changes = [certificate_binding_type, container_app_environment_certificate_id]
   }
-}
-
-# ---------- Entra ID: admin sign-in app ----------
-resource "random_uuid" "admin_scope" {}
-
-resource "azuread_application" "admin" {
-  display_name     = "wedding-admin"
-  sign_in_audience = "AzureADandPersonalMicrosoftAccount" # work and personal Microsoft accounts
-
-  api {
-    requested_access_token_version = 2
-    oauth2_permission_scope {
-      id                         = random_uuid.admin_scope.result
-      value                      = "access_as_user"
-      type                       = "User"
-      enabled                    = true
-      admin_consent_display_name = "Access the wedding admin API"
-      admin_consent_description  = "Lets the admin page call the wedding API."
-      user_consent_display_name  = "Access the wedding admin API"
-      user_consent_description   = "Lets the admin page call the wedding API."
-    }
-  }
-
-  single_page_application {
-    redirect_uris = [
-      "https://${var.domain}/admin",
-      "https://www.${var.domain}/admin",
-      "http://localhost:5173/admin",
-    ]
-  }
-
-  lifecycle {
-    ignore_changes = [identifier_uris] # managed by the resource below
-  }
-}
-
-resource "azuread_application_identifier_uri" "admin" {
-  application_id = azuread_application.admin.id
-  identifier_uri = "api://${azuread_application.admin.client_id}"
 }
 
 # ---------- Entra ID: GitHub Actions deploy identity (OIDC, no stored secret) ----------

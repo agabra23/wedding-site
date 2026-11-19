@@ -1,6 +1,5 @@
 using System.Net;
 using Microsoft.Azure.Cosmos;
-using Microsoft.Identity.Web;
 
 var builder = WebApplication.CreateBuilder(args);
 var config = builder.Configuration;
@@ -20,17 +19,12 @@ builder.Services.AddCors(o => o.AddDefaultPolicy(p => p
     .AllowAnyHeader()
     .AllowAnyMethod()));
 
-// Admin auth: Entra ID tokens + an email allowlist
-builder.Services.AddMicrosoftIdentityWebApiAuthentication(config, "AzureAd");
-builder.Services.AddAuthorization(o => o.AddPolicy("Admin", p => p.RequireAssertion(ctx =>
-{
-    var email = ctx.User.FindFirst("preferred_username")?.Value;
-    var admins = config.GetSection("AdminEmails").Get<string[]>() ?? [];
-    return email is not null && admins.Contains(email, StringComparer.OrdinalIgnoreCase);
-})));
+builder.AddSharedPasswordAuth();
 
 var app = builder.Build();
+app.UseForwardedHeaders();
 app.UseCors();
+app.UseRateLimiter();
 app.UseAuthentication();
 app.UseAuthorization();
 
@@ -40,7 +34,8 @@ Container Parties(CosmosClient c) =>
 // ADR-0001: every document shares one partition key value
 var pk = new PartitionKey(Partitioning.Value);
 
-app.MapGet("/health", () => Results.Ok());
+app.MapGet("/health", () => Results.Ok()).AllowAnonymous();
+app.MapAuth();
 
 app.MapGet("/party/{code}", async (string code, CosmosClient cosmos) =>
 {
@@ -54,7 +49,7 @@ app.MapGet("/party/{code}", async (string code, CosmosClient cosmos) =>
     {
         return Results.NotFound();
     }
-});
+}).RequireAuthorization(Policies.Guest);
 
 app.MapPost("/rsvp/{code}", async (string code, RsvpRequest req, CosmosClient cosmos, TimeProvider clock) =>
 {
@@ -99,7 +94,7 @@ app.MapPost("/rsvp/{code}", async (string code, RsvpRequest req, CosmosClient co
     {
         return Results.Conflict("This RSVP was just changed elsewhere. Please reload and try again.");
     }
-});
+}).RequireAuthorization(Policies.Guest);
 
 app.MapGet("/admin/parties", async (CosmosClient cosmos) =>
 {
@@ -107,7 +102,7 @@ app.MapGet("/admin/parties", async (CosmosClient cosmos) =>
     var all = new List<Party>();
     while (it.HasMoreResults) all.AddRange(await it.ReadNextAsync());
     return Results.Ok(all);
-}).RequireAuthorization("Admin");
+}).RequireAuthorization(Policies.Admin);
 
 app.Run();
 

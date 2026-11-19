@@ -1,0 +1,128 @@
+using System.Net;
+using System.Net.Http.Json;
+
+namespace WeddingApi.Tests;
+
+public class AuthTests(ApiFactory api) : IClassFixture<ApiFactory>
+{
+    static async Task<HttpResponseMessage> SignIn(HttpClient c, string? password) =>
+        await c.PostAsJsonAsync("/auth", new AuthRequest(password));
+
+    [Fact]
+    public async Task Event_password_returns_guest_token()
+    {
+        var res = await SignIn(api.CreateClient(), ApiFactory.EventPassword);
+        Assert.Equal(HttpStatusCode.OK, res.StatusCode);
+        var body = await res.Content.ReadFromJsonAsync<AuthResponse>();
+        Assert.Equal("guest", body!.Role);
+        Assert.False(string.IsNullOrEmpty(body.Token));
+    }
+
+    [Fact]
+    public async Task Admin_password_returns_admin_token()
+    {
+        var res = await SignIn(api.CreateClient(), ApiFactory.AdminPassword);
+        Assert.Equal("admin", (await res.Content.ReadFromJsonAsync<AuthResponse>())!.Role);
+    }
+
+    [Theory]
+    [InlineData("wrong")]
+    [InlineData("")]
+    [InlineData(null)]
+    public async Task Other_passwords_are_rejected(string? password)
+    {
+        var res = await SignIn(api.CreateClient(), password);
+        Assert.Equal(HttpStatusCode.Unauthorized, res.StatusCode);
+    }
+
+    [Fact]
+    public async Task Health_and_auth_need_no_token()
+    {
+        var c = api.CreateClient();
+        Assert.Equal(HttpStatusCode.OK, (await c.GetAsync("/health")).StatusCode);
+        Assert.NotEqual(HttpStatusCode.Unauthorized, (await SignIn(c, ApiFactory.EventPassword)).StatusCode);
+    }
+
+    [Theory]
+    [InlineData("/party/ABC")]
+    [InlineData("/admin/parties")]
+    public async Task Other_endpoints_return_401_without_a_token(string path)
+    {
+        Assert.Equal(HttpStatusCode.Unauthorized, (await api.CreateClient().GetAsync(path)).StatusCode);
+    }
+
+    [Fact]
+    public async Task Rsvp_returns_401_without_a_token()
+    {
+        var res = await api.CreateClient().PostAsJsonAsync("/rsvp/ABC", new RsvpRequest(null, []));
+        Assert.Equal(HttpStatusCode.Unauthorized, res.StatusCode);
+    }
+
+    [Fact]
+    public async Task Garbage_token_returns_401()
+    {
+        var c = ApiFactory.WithToken(api.CreateClient(), "not-a-token");
+        Assert.Equal(HttpStatusCode.Unauthorized, (await c.GetAsync("/party/ABC")).StatusCode);
+    }
+
+    [Fact]
+    public async Task Admin_endpoints_return_403_for_a_guest()
+    {
+        var c = await api.SignedInClientAsync(ApiFactory.EventPassword);
+        Assert.Equal(HttpStatusCode.Forbidden, (await c.GetAsync("/admin/parties")).StatusCode);
+    }
+
+    [Fact]
+    public async Task Admin_token_can_call_admin_and_guest_endpoints()
+    {
+        var c = await api.SignedInClientAsync(ApiFactory.AdminPassword);
+        Assert.Equal(HttpStatusCode.OK, (await c.GetAsync("/admin/parties")).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await c.GetAsync("/party/NOPE")).StatusCode);
+    }
+
+    [Fact]
+    public async Task Guest_token_expires_after_30_days()
+    {
+        // The fake clock only moves forward and is shared by the class, so measure from now
+        var start = api.Clock.GetUtcNow();
+        var c = await api.SignedInClientAsync(ApiFactory.EventPassword);
+
+        api.Clock.SetUtcNow(start + TimeSpan.FromDays(30) - TimeSpan.FromSeconds(1));
+        Assert.Equal(HttpStatusCode.NotFound, (await c.GetAsync("/party/NOPE")).StatusCode);
+
+        api.Clock.SetUtcNow(start + TimeSpan.FromDays(30));
+        Assert.Equal(HttpStatusCode.Unauthorized, (await c.GetAsync("/party/NOPE")).StatusCode);
+    }
+
+    [Fact]
+    public async Task Admin_token_expires_after_24_hours()
+    {
+        // The fake clock only moves forward and is shared by the class, so measure from now
+        var start = api.Clock.GetUtcNow();
+        var c = await api.SignedInClientAsync(ApiFactory.AdminPassword);
+
+        api.Clock.SetUtcNow(start + TimeSpan.FromHours(24) - TimeSpan.FromSeconds(1));
+        Assert.Equal(HttpStatusCode.OK, (await c.GetAsync("/admin/parties")).StatusCode);
+
+        api.Clock.SetUtcNow(start + TimeSpan.FromHours(24));
+        Assert.Equal(HttpStatusCode.Unauthorized, (await c.GetAsync("/admin/parties")).StatusCode);
+    }
+}
+
+public class AuthRateLimitTests(ApiFactory api) : IClassFixture<ApiFactory>
+{
+    [Fact]
+    public async Task Too_many_auth_attempts_from_one_ip_are_rate_limited()
+    {
+        using var limited = api.WithWebHostBuilder(b => b.UseSetting("AuthRequestsPerMinute", "5"));
+        var c = limited.CreateClient();
+
+        for (var i = 0; i < 5; i++)
+            Assert.Equal(HttpStatusCode.Unauthorized,
+                (await c.PostAsJsonAsync("/auth", new AuthRequest("wrong"))).StatusCode);
+
+        // Even the right password is refused once the limit is hit
+        var res = await c.PostAsJsonAsync("/auth", new AuthRequest(ApiFactory.EventPassword));
+        Assert.Equal(HttpStatusCode.TooManyRequests, res.StatusCode);
+    }
+}
