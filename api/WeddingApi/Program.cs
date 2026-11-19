@@ -5,11 +5,14 @@ using Microsoft.Identity.Web;
 var builder = WebApplication.CreateBuilder(args);
 var config = builder.Configuration;
 
+builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton(_ => new CosmosClient(
     config["CosmosConnection"],
     new CosmosClientOptions
     {
-        SerializerOptions = new() { PropertyNamingPolicy = CosmosPropertyNamingPolicy.CamelCase }
+        SerializerOptions = new() { PropertyNamingPolicy = CosmosPropertyNamingPolicy.CamelCase },
+        // The Docker emulator is only reachable through its gateway endpoint
+        ConnectionMode = config.GetValue<bool>("CosmosGatewayMode") ? ConnectionMode.Gateway : ConnectionMode.Direct,
     }));
 
 builder.Services.AddCors(o => o.AddDefaultPolicy(p => p
@@ -32,7 +35,10 @@ app.UseAuthentication();
 app.UseAuthorization();
 
 Container Parties(CosmosClient c) =>
-    c.GetContainer("wedding", config["PartiesContainer"] ?? "parties");
+    c.GetContainer(config["CosmosDatabase"] ?? "wedding", config["PartiesContainer"] ?? "parties");
+
+// ADR-0001: every document shares one partition key value
+var pk = new PartitionKey(Partitioning.Value);
 
 app.MapGet("/health", () => Results.Ok());
 
@@ -41,7 +47,7 @@ app.MapGet("/party/{code}", async (string code, CosmosClient cosmos) =>
     var id = code.Trim().ToUpperInvariant();
     try
     {
-        var res = await Parties(cosmos).ReadItemAsync<Party>(id, new PartitionKey(id));
+        var res = await Parties(cosmos).ReadItemAsync<Party>(id, pk);
         return Results.Ok(res.Resource);
     }
     catch (CosmosException e) when (e.StatusCode == HttpStatusCode.NotFound)
@@ -50,7 +56,7 @@ app.MapGet("/party/{code}", async (string code, CosmosClient cosmos) =>
     }
 });
 
-app.MapPost("/rsvp/{code}", async (string code, RsvpRequest req, CosmosClient cosmos) =>
+app.MapPost("/rsvp/{code}", async (string code, RsvpRequest req, CosmosClient cosmos, TimeProvider clock) =>
 {
     var id = code.Trim().ToUpperInvariant();
     var container = Parties(cosmos);
@@ -61,7 +67,7 @@ app.MapPost("/rsvp/{code}", async (string code, RsvpRequest req, CosmosClient co
 
     try
     {
-        var res = await container.ReadItemAsync<Party>(id, new PartitionKey(id));
+        var res = await container.ReadItemAsync<Party>(id, pk);
         var party = res.Resource;
 
         // Only known guests can be updated; names come from the stored party, never the client.
@@ -78,10 +84,10 @@ app.MapPost("/rsvp/{code}", async (string code, RsvpRequest req, CosmosClient co
         {
             Email = string.IsNullOrWhiteSpace(req.Email) ? party.Email : req.Email.Trim(),
             Guests = guests,
-            RespondedAt = DateTime.UtcNow,
+            RespondedAt = clock.GetUtcNow().UtcDateTime,
         };
 
-        await container.ReplaceItemAsync(updated, id, new PartitionKey(id),
+        await container.ReplaceItemAsync(updated, id, pk,
             new ItemRequestOptions { IfMatchEtag = res.ETag });
         return Results.NoContent();
     }
@@ -97,7 +103,7 @@ app.MapPost("/rsvp/{code}", async (string code, RsvpRequest req, CosmosClient co
 
 app.MapGet("/admin/parties", async (CosmosClient cosmos) =>
 {
-    var it = Parties(cosmos).GetItemQueryIterator<Party>("SELECT * FROM c");
+    var it = Parties(cosmos).GetItemQueryIterator<Party>("SELECT * FROM c", requestOptions: new QueryRequestOptions { PartitionKey = pk });
     var all = new List<Party>();
     while (it.HasMoreResults) all.AddRange(await it.ReadNextAsync());
     return Results.Ok(all);
@@ -106,6 +112,18 @@ app.MapGet("/admin/parties", async (CosmosClient cosmos) =>
 app.Run();
 
 public record Guest(string Name, string Rsvp, string? Meal, bool IsPlusOne);
-public record Party(string Id, string PartyName, string? Email, List<Guest> Guests, DateTime? RespondedAt);
+public record Party(string Id, string PartyName, string? Email, List<Guest> Guests, DateTime? RespondedAt)
+{
+    public string Pk { get; init; } = Partitioning.Value;
+}
 public record GuestAnswer(string Name, string Rsvp, string? Meal);
 public record RsvpRequest(string? Email, List<GuestAnswer> Guests);
+
+public static class Partitioning
+{
+    public const string Path = "/pk";
+    public const string Value = "wedding";
+}
+
+// Lets the test project host the API in-process
+public partial class Program;

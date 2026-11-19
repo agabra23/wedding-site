@@ -29,12 +29,21 @@ jobs:
 
   api:
     runs-on: ubuntu-latest
+    services:
+      cosmos:
+        image: mcr.microsoft.com/cosmosdb/linux/azure-cosmos-emulator:vnext-preview
+        ports:
+          - 8081:8081
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 10.0.x
       - run: dotnet build api/WeddingApi -c Release
+      - name: Wait for Cosmos emulator
+        run: timeout 120 bash -c 'until curl -sf http://localhost:8081/ >/dev/null; do sleep 3; done'
+      - name: API tests
+        run: dotnet test api/WeddingApi.Tests
       - name: Docker image builds
         run: docker build api/WeddingApi
 
