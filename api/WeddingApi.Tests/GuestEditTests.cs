@@ -8,6 +8,7 @@ public class GuestEditTests(ApiFactory api) : IClassFixture<ApiFactory>
     record AddRequest(string? PartyId, GuestName[] Guests);
     record Name(string? FirstName, string? LastName);
     record LookupBody(string FirstName, string LastName);
+    record LookupResponse(PartyDto Party);
 
     static string Unique() => Guid.NewGuid().ToString("N");
 
@@ -170,8 +171,9 @@ public class GuestEditTests(ApiFactory api) : IClassFixture<ApiFactory>
         var b = await Seed(Unique());
         await Move(a.Guests[0].Id, b.Id);
         var guest = await api.SignedInClientAsync(ApiFactory.EventPassword);
-        var party = (await (await guest.PostAsJsonAsync("/lookup", new LookupBody("Ann", u))).Content.ReadFromJsonAsync<PartyDto>())!;
-        Assert.Equal(b.Id, party.Id);
+        var res = await guest.PostAsJsonAsync("/lookup", new LookupBody("Ann", u));
+        var body = await res.Content.ReadFromJsonAsync<LookupResponse>();
+        Assert.Equal(b.Id, body!.Party.Id);
     }
 
     [Fact]
