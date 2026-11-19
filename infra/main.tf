@@ -145,6 +145,15 @@ resource "azurerm_key_vault_access_policy" "terraform" {
   secret_permissions = ["Get", "List", "Set", "Delete", "Recover", "Purge"]
 }
 
+# The human owner manages keys and secrets from the CLI/portal
+resource "azurerm_key_vault_access_policy" "admin" {
+  key_vault_id       = azurerm_key_vault.kv.id
+  tenant_id          = data.azurerm_client_config.current.tenant_id
+  object_id          = var.admin_object_id
+  secret_permissions = ["Get", "List", "Set", "Delete", "Recover", "Backup", "Restore", "Purge"]
+  key_permissions    = ["Get", "List", "Create", "Update", "Delete", "Recover", "Backup", "Restore", "Purge", "Import"]
+}
+
 resource "azurerm_user_assigned_identity" "api" {
   name                = "id-wedding-api"
   location            = azurerm_resource_group.rg.location

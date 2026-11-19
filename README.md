@@ -29,9 +29,11 @@ Environment: `Production` (optionally add yourself as a required reviewer).
 
 ## Local dev
 
+Quickest: `npm run dev` (runs `scripts/dev.sh`) starts both and Ctrl+C stops both. Or run them separately:
+
 ```bash
 cd api/WeddingApi && dotnet run --urls http://localhost:5080   # API, uses the dev Cosmos account
-npm run dev                                                    # site on :5173 (Node 20+)
+npm run dev:only                                                 # site on :5173 (Node 20+)
 ```
 
 ### Dev database

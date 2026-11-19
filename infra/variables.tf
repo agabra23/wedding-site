@@ -15,3 +15,5 @@ variable "cloudflare_api_token" {
   type      = string
   sensitive = true # set via TF_VAR_cloudflare_api_token
 }
+
+variable "admin_object_id" { type = string } # Entra object ID of the human owner (az ad signed-in-user show --query id)
