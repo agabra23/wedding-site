@@ -72,18 +72,11 @@ public class RsvpDeadlineTests(ApiFactory api) : IClassFixture<ApiFactory>
         await SetDeadline(api.Clock.GetUtcNow().AddDays(1).ToString("O"));
         Assert.Equal(HttpStatusCode.NoContent, (await Rsvp(p)).StatusCode);
 
-        var before = api.Clock.GetUtcNow();
+        // The fake clock only moves forward; every test here sets its deadline relative to "now"
         api.Clock.Advance(TimeSpan.FromDays(2));
-        try
-        {
-            Assert.Equal(HttpStatusCode.Forbidden, (await Rsvp(p, "declined")).StatusCode);
-            var after = (await (await Admin()).GetFromJsonAsync<List<PartyDto>>("/admin/parties"))!.Single(x => x.Id == p.Id);
-            Assert.Equal("attending", after.Guests[0].Rsvp);
-        }
-        finally
-        {
-            api.Clock.SetUtcNow(before);
-        }
+        Assert.Equal(HttpStatusCode.Forbidden, (await Rsvp(p, "declined")).StatusCode);
+        var after = (await (await Admin()).GetFromJsonAsync<List<PartyDto>>("/admin/parties"))!.Single(x => x.Id == p.Id);
+        Assert.Equal("attending", after.Guests[0].Rsvp);
     }
 
     [Fact]
