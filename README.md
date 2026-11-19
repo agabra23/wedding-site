@@ -30,9 +30,20 @@ Environment: `Production` (optionally add yourself as a required reviewer).
 ## Local dev
 
 ```bash
-cd api/WeddingApi && dotnet run --urls http://localhost:5080   # API, uses parties-dev
+cd api/WeddingApi && dotnet run --urls http://localhost:5080   # API, uses the dev Cosmos account
 npm run dev                                                    # site on :5173 (Node 20+)
 ```
+
+### Dev database
+
+Local runs use their own serverless Cosmos account, `cosmos-wedding-thegabras2027-dev` (database `wedding`, container `parties`, same names as prod), so dev credentials can't reach prod data. After `terraform apply`, set the connection string once:
+
+```bash
+cd infra && terraform output -raw cosmos_dev_connection | \
+  (cd ../api/WeddingApi && dotnet user-secrets set CosmosConnection "$(cat)")
+```
+
+In `Development` the API refuses to start unless `CosmosConnection` points at the dev account (`DevCosmosHost`) or the local emulator (see ADR-0003). Make sure no `CosmosConnection` or `PartiesContainer` environment variables are set, since they override user-secrets.
 
 ### API tests
 
