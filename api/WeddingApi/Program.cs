@@ -34,6 +34,7 @@ app.MapGuestAdmin();
 app.MapSettingsAdmin();
 app.MapPartyRsvp();
 app.MapAdminRsvp();
+app.MapGuestEdit();
 app.MapLookup();
 
 app.Run();
