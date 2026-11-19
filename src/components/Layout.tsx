@@ -1,4 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react'
+import { useSession } from '../auth/session'
 import { Link, NavLink, Outlet, useLocation } from 'react-router-dom'
 
 function Icon({ children }: { children: ReactNode }) {
@@ -18,7 +19,7 @@ function Icon({ children }: { children: ReactNode }) {
   )
 }
 
-const NAV_ITEMS = [
+const NAV_ITEMS: { to: string; label: string; icon: ReactNode; adminOnly?: boolean }[] = [
   {
     to: '/',
     label: 'Home',
@@ -73,6 +74,17 @@ const NAV_ITEMS = [
       </Icon>
     ),
   },
+  {
+    to: '/admin',
+    label: 'Admin',
+    adminOnly: true,
+    icon: (
+      <Icon>
+        <path d="M12 3 4.5 6v5.5c0 4.5 3.2 7.8 7.5 9.5 4.3-1.7 7.5-5 7.5-9.5V6L12 3Z" />
+        <path d="m9 12 2.2 2.2L15 10.3" />
+      </Icon>
+    ),
+  },
 ]
 
 const desktopLinkClass = ({ isActive }: { isActive: boolean }) =>
@@ -86,6 +98,8 @@ const mobileLinkClass = ({ isActive }: { isActive: boolean }) =>
 export default function Layout() {
   const [open, setOpen] = useState(false)
   const { pathname } = useLocation()
+  const { role, signOut } = useSession()
+  const navItems = NAV_ITEMS.filter((i) => !i.adminOnly || role === 'admin')
 
   useEffect(() => setOpen(false), [pathname])
 
@@ -126,7 +140,7 @@ export default function Layout() {
           </button>
           <nav className="hidden md:block">
             <ul className="flex gap-6">
-              {NAV_ITEMS.map((item) => (
+              {navItems.map((item) => (
                 <li key={item.to}>
                   <NavLink to={item.to} end className={desktopLinkClass}>
                     {item.label}
@@ -146,7 +160,7 @@ export default function Layout() {
         >
           <nav className="overflow-hidden">
             <ul className="flex flex-col gap-1 p-3">
-              {NAV_ITEMS.map((item, i) => (
+              {navItems.map((item, i) => (
                 <li
                   key={item.to}
                   className={`transition-all duration-300 ease-out ${
@@ -185,7 +199,7 @@ export default function Layout() {
           <p className="text-ink-muted normal-case">We can't wait to celebrate with you.</p>
           <nav aria-label="Footer">
             <ul className="flex flex-wrap justify-center gap-x-6 gap-y-1">
-              {NAV_ITEMS.map((item) => (
+              {navItems.map((item) => (
                 <li key={item.to}>
                   <NavLink
                     to={item.to}
@@ -208,6 +222,13 @@ export default function Layout() {
           >
             RSVP
           </Link>
+          <button
+            type="button"
+            onClick={signOut}
+            className="text-ink-muted hover:text-ink min-h-11 px-3 text-sm underline underline-offset-4 transition-colors duration-200"
+          >
+            Sign out
+          </button>
           <p className="text-ink-muted text-sm">
             &copy; {new Date().getFullYear()} Our Wedding &middot; Made with love
           </p>
