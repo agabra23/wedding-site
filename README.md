@@ -30,6 +30,12 @@ Repo variables (not secret): `ARM_CLIENT_ID`, `ARM_TENANT_ID`, `AZURE_SUBSCRIPTI
 Repo secret: `CLOUDFLARE_API_TOKEN`.
 Environments: `Production` (optionally add yourself as a required reviewer) and `Development` (no reviewers; created automatically on first use). Terraform creates the federated credential for `Development`, but the first apply that adds it must run from `main` or locally, since a `dev` run can't sign in before it exists.
 
+CI signs in to Azure as the app registration `ar-terraform` (the `ARM_CLIENT_ID` variable), **not** the `wedding-github-deploy` app Terraform manages. Its federated credentials are created by hand, because the apply itself signs in with them. This repo uses GitHub's immutable OIDC subject, so each subject starts with `repo:agabra23@123777400/wedding-site@1463459259` (read it with `gh api repos/agabra23/wedding-site/actions/oidc/customization/sub --jq .sub_claim_prefix`) followed by `:pull_request`, `:environment:Production` or `:environment:Development`. To add one:
+
+```bash
+az ad app federated-credential create --id <ARM_CLIENT_ID> --parameters '{"name":"...","issuer":"https://token.actions.githubusercontent.com","subject":"<prefix>:environment:<Name>","audiences":["api://AzureADTokenExchange"]}'
+```
+
 The dev site lives at `https://dev.thegabras2027.com` (Cloudflare CNAME plus SWA custom domain, both in Terraform; the `*.azurestaticapps.net` host also works). The dev API stays on its generated Azure host: the site build looks it up at deploy time, so it needs no DNS record of its own and uses the dev Cosmos account and its own Key Vault secrets (`event-password-dev`, `admin-password-dev`, `token-signing-key-dev`); set the real dev passwords the same way as prod.
 
 ## Local dev

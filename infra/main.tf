@@ -494,33 +494,6 @@ resource "azuread_application_federated_identity_credential" "deploy_main" {
   subject        = "repo:${var.github_repo}:ref:refs/heads/main"
 }
 
-# Production deploys (site, api, and terraform apply on main) run in the "Production" GitHub environment
-resource "azuread_application_federated_identity_credential" "deploy_production" {
-  application_id = azuread_application.deploy.id
-  display_name   = "github-env-production"
-  audiences      = ["api://AzureADTokenExchange"]
-  issuer         = "https://token.actions.githubusercontent.com"
-  subject        = "${var.github_oidc_subject_prefix}:environment:Production"
-}
-
-# terraform plan on pull requests into main (infra.yml)
-resource "azuread_application_federated_identity_credential" "deploy_pull_request" {
-  application_id = azuread_application.deploy.id
-  display_name   = "github-pull-request"
-  audiences      = ["api://AzureADTokenExchange"]
-  issuer         = "https://token.actions.githubusercontent.com"
-  subject        = "${var.github_oidc_subject_prefix}:pull_request"
-}
-
-# Dev deploys (site-dev, api-dev, and terraform apply on dev) run in the "Development" GitHub environment
-resource "azuread_application_federated_identity_credential" "deploy_development" {
-  application_id = azuread_application.deploy.id
-  display_name   = "github-env-development"
-  audiences      = ["api://AzureADTokenExchange"]
-  issuer         = "https://token.actions.githubusercontent.com"
-  subject        = "${var.github_oidc_subject_prefix}:environment:Development"
-}
-
 resource "azurerm_role_assignment" "deploy" {
   scope                = azurerm_resource_group.rg.id
   role_definition_name = "Contributor"
