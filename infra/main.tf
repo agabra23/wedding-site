@@ -57,7 +57,7 @@ resource "azurerm_cosmosdb_sql_container" "parties" {
   resource_group_name = azurerm_resource_group.rg.name
   account_name        = azurerm_cosmosdb_account.cosmos.name
   database_name       = azurerm_cosmosdb_sql_database.db.name
-  partition_key_paths = ["/id"]
+  partition_key_paths = ["/pk"] # ADR-0001: one constant value for every document
 }
 
 # ---------- Static Web App (Free) ----------

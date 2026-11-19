@@ -13,7 +13,7 @@ api/WeddingApi/   ASP.NET Core API + Dockerfile
 
 | Event | Workflow | What runs |
 | --- | --- | --- |
-| PR into `dev` or `main`, push to `dev` | `ci` | site build, API build + docker build, terraform fmt/validate |
+| PR into `dev` or `main`, push to `dev` | `ci` | site build, API build + tests + docker build, terraform fmt/validate |
 | PR into `main` touching `infra/` | `infra` | `terraform plan` (federated cred: `pull_request`) |
 | Push to `main` touching `infra/` | `infra` | `terraform apply` (environment `Production`) |
 | Push to `main` touching site code | `site` | build + deploy Static Web App (environment `Production`) |
@@ -33,6 +33,17 @@ Environment: `Production` (optionally add yourself as a required reviewer).
 cd api/WeddingApi && dotnet run --urls http://localhost:5080   # API, uses parties-dev
 npm run dev                                                    # site on :5173 (Node 20+)
 ```
+
+### API tests
+
+The API tests host the API in-process and run against the Azure Cosmos DB emulator, so they need **Docker**:
+
+```bash
+docker run -d --name cosmos-emu -p 8081:8081 mcr.microsoft.com/cosmosdb/linux/azure-cosmos-emulator:vnext-preview
+dotnet test api/WeddingApi.Tests
+```
+
+Each test class creates its own throwaway database and deletes it afterwards. Set `COSMOS_TEST_CONNECTION` to point at a different emulator. Tests control time through `ApiFactory.Clock` (a fake `TimeProvider`). CI runs the same emulator as a service container in the `api` job.
 
 Local API secrets go in user-secrets (see the setup doc, Step 3).
 
