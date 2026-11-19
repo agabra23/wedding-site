@@ -1,4 +1,4 @@
-import { Route, Routes } from 'react-router-dom'
+import { Navigate, Route, Routes } from 'react-router-dom'
 import Layout from './components/Layout'
 import Home from './pages/Home'
 import Faq from './pages/Faq'
@@ -13,7 +13,15 @@ import { useSession } from './auth/session'
 
 export default function App() {
   const { token } = useSession()
-  if (!token) return <EntryGate />
+  // Signed out: reset the URL to home (replace, so Back can't return to a gated page)
+  // so that signing in always lands on `/`.
+  if (!token)
+    return (
+      <>
+        <Navigate to="/" replace />
+        <EntryGate />
+      </>
+    )
   return (
     <Routes>
       <Route element={<Layout />}>
