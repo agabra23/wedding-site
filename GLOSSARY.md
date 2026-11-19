@@ -24,8 +24,16 @@ _Avoid_: Unanswered, no response
 The moment, set by the Admins, after which Guests can no longer give or change RSVPs. Admins can still change them.
 _Avoid_: Cutoff
 
+**Event Password**:
+The single shared secret the couple gives to everyone invited, which lets them into the site.
+_Avoid_: Master password, site password
+
+**Admin Password**:
+The shared secret known only to the couple, which grants Admin access.
+_Avoid_: Master password
+
 **Admin**:
-One of the couple, who manages Guests and Parties.
+One of the couple, signed in with the Admin Password, who manages Guests, Parties and the RSVP Deadline.
 _Avoid_: Owner, host
 
 ## Relationships
