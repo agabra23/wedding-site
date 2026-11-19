@@ -113,6 +113,16 @@ resource "azurerm_static_web_app" "site" {
   sku_size            = "Free"
 }
 
+# Dev copy of the site, served from its default *.azurestaticapps.net host (no custom domain).
+# Deployed on every push to dev and talks to the dev API (ca-wedding-api-dev) and dev Cosmos account.
+resource "azurerm_static_web_app" "site_dev" {
+  name                = "swa-wedding-dev"
+  resource_group_name = azurerm_resource_group.rg.name
+  location            = azurerm_resource_group.rg.location
+  sku_tier            = "Free"
+  sku_size            = "Free"
+}
+
 resource "azurerm_static_web_app_custom_domain" "www" {
   static_web_app_id = azurerm_static_web_app.site.id
   domain_name       = "www.${var.domain}"
@@ -214,6 +224,52 @@ resource "azurerm_key_vault_secret" "token_signing_key" {
   name         = "token-signing-key"
   key_vault_id = azurerm_key_vault.kv.id
   value        = random_password.token_signing_key.result
+  depends_on   = [azurerm_key_vault_access_policy.terraform]
+}
+
+# Dev gets its own passwords and signing key so nothing from prod works against the dev site.
+# Same convention as prod: random throwaway values until the real ones are set with `az keyvault secret set`.
+resource "random_password" "initial_event_password_dev" {
+  length  = 32
+  special = false
+}
+
+resource "random_password" "initial_admin_password_dev" {
+  length  = 32
+  special = false
+}
+
+resource "random_password" "token_signing_key_dev" {
+  length  = 64
+  special = false
+}
+
+resource "azurerm_key_vault_secret" "event_password_dev" {
+  name         = "event-password-dev"
+  key_vault_id = azurerm_key_vault.kv.id
+  value        = random_password.initial_event_password_dev.result
+  depends_on   = [azurerm_key_vault_access_policy.terraform]
+
+  lifecycle {
+    ignore_changes = [value]
+  }
+}
+
+resource "azurerm_key_vault_secret" "admin_password_dev" {
+  name         = "admin-password-dev"
+  key_vault_id = azurerm_key_vault.kv.id
+  value        = random_password.initial_admin_password_dev.result
+  depends_on   = [azurerm_key_vault_access_policy.terraform]
+
+  lifecycle {
+    ignore_changes = [value]
+  }
+}
+
+resource "azurerm_key_vault_secret" "token_signing_key_dev" {
+  name         = "token-signing-key-dev"
+  key_vault_id = azurerm_key_vault.kv.id
+  value        = random_password.token_signing_key_dev.result
   depends_on   = [azurerm_key_vault_access_policy.terraform]
 }
 
@@ -320,6 +376,100 @@ resource "azurerm_container_app_custom_domain" "api" {
   }
 }
 
+# Dev API: same environment and identity as prod, but dev Cosmos account, dev secrets and dev CORS origin.
+# Runs as ASP.NET "Production" (the ADR-0003 guard is for local Development runs only).
+resource "azurerm_container_app" "api_dev" {
+  name                         = "ca-wedding-api-dev"
+  container_app_environment_id = azurerm_container_app_environment.env.id
+  resource_group_name          = azurerm_resource_group.rg.name
+  revision_mode                = "Single"
+  depends_on                   = [azurerm_key_vault_access_policy.api]
+
+  secret {
+    name  = "cosmos-connection"
+    value = azurerm_cosmosdb_account.cosmos_dev.primary_sql_connection_string
+  }
+
+  identity {
+    type         = "UserAssigned"
+    identity_ids = [azurerm_user_assigned_identity.api.id]
+  }
+
+  secret {
+    name                = "event-password"
+    key_vault_secret_id = azurerm_key_vault_secret.event_password_dev.versionless_id
+    identity            = azurerm_user_assigned_identity.api.id
+  }
+
+  secret {
+    name                = "admin-password"
+    key_vault_secret_id = azurerm_key_vault_secret.admin_password_dev.versionless_id
+    identity            = azurerm_user_assigned_identity.api.id
+  }
+
+  secret {
+    name                = "token-signing-key"
+    key_vault_secret_id = azurerm_key_vault_secret.token_signing_key_dev.versionless_id
+    identity            = azurerm_user_assigned_identity.api.id
+  }
+
+  ingress {
+    external_enabled = true
+    target_port      = 80
+    traffic_weight {
+      latest_revision = true
+      percentage      = 100
+    }
+  }
+
+  template {
+    min_replicas = 0 # scale to zero: dev traffic is rare and cold starts are fine
+    max_replicas = 1
+
+    container {
+      name   = "api"
+      image  = "mcr.microsoft.com/k8se/quickstart:latest" # placeholder until CI ships the real image
+      cpu    = 0.25
+      memory = "0.5Gi"
+
+      env {
+        name        = "CosmosConnection"
+        secret_name = "cosmos-connection"
+      }
+      env {
+        name        = "EventPassword"
+        secret_name = "event-password"
+      }
+      env {
+        name        = "AdminPassword"
+        secret_name = "admin-password"
+      }
+      env {
+        name        = "TokenSigningKey"
+        secret_name = "token-signing-key"
+      }
+      env {
+        name  = "PartiesContainer"
+        value = "parties"
+      }
+      # Overrides both entries of the prod AllowedOrigins array in appsettings.json
+      env {
+        name  = "AllowedOrigins__0"
+        value = "https://${azurerm_static_web_app.site_dev.default_host_name}"
+      }
+      env {
+        name  = "AllowedOrigins__1"
+        value = "https://${azurerm_static_web_app.site_dev.default_host_name}"
+      }
+    }
+  }
+
+  lifecycle {
+    # GitHub Actions owns the image tag (api-dev.yml); Terraform owns everything else
+    ignore_changes = [template[0].container[0].image]
+  }
+}
+
 # ---------- Entra ID: GitHub Actions deploy identity (OIDC, no stored secret) ----------
 resource "azuread_application" "deploy" {
   display_name = "wedding-github-deploy"
@@ -335,6 +485,15 @@ resource "azuread_application_federated_identity_credential" "deploy_main" {
   audiences      = ["api://AzureADTokenExchange"]
   issuer         = "https://token.actions.githubusercontent.com"
   subject        = "repo:${var.github_repo}:ref:refs/heads/main"
+}
+
+# Dev deploys (site-dev, api-dev, and terraform apply on dev) run in the "Development" GitHub environment
+resource "azuread_application_federated_identity_credential" "deploy_development" {
+  application_id = azuread_application.deploy.id
+  display_name   = "github-env-development"
+  audiences      = ["api://AzureADTokenExchange"]
+  issuer         = "https://token.actions.githubusercontent.com"
+  subject        = "repo:${var.github_repo}:environment:Development"
 }
 
 resource "azurerm_role_assignment" "deploy" {
