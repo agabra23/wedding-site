@@ -15,13 +15,3 @@ variable "cloudflare_api_token" {
   type      = string
   sensitive = true # set via TF_VAR_cloudflare_api_token
 }
-
-variable "event_password" {
-  type      = string
-  sensitive = true # set via TF_VAR_event_password
-}
-
-variable "admin_password" {
-  type      = string
-  sensitive = true # set via TF_VAR_admin_password
-}
