@@ -17,3 +17,7 @@ variable "cloudflare_api_token" {
 }
 
 variable "admin_object_id" { type = string } # Entra object ID of the human owner (az ad signed-in-user show --query id)
+
+# GitHub's immutable OIDC subject: "repo:<owner>@<owner id>/<repo>@<repo id>". Read it with
+#   gh api repos/<owner>/<repo>/actions/oidc/customization/sub --jq .sub_claim_prefix
+variable "github_oidc_subject_prefix" { type = string }

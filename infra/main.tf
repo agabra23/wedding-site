@@ -500,7 +500,7 @@ resource "azuread_application_federated_identity_credential" "deploy_development
   display_name   = "github-env-development"
   audiences      = ["api://AzureADTokenExchange"]
   issuer         = "https://token.actions.githubusercontent.com"
-  subject        = "repo:${var.github_repo}:environment:Development"
+  subject        = "${var.github_oidc_subject_prefix}:environment:Development"
 }
 
 resource "azurerm_role_assignment" "deploy" {
