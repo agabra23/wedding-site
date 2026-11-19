@@ -18,6 +18,9 @@ api/WeddingApi/   ASP.NET Core API + Dockerfile
 | Push to `main` touching `infra/` | `infra` | `terraform apply` (environment `Production`) |
 | Push to `main` touching site code | `site` | build + deploy Static Web App (environment `Production`) |
 | Push to `main` touching `api/` | `api` | build image to GHCR + update Container App (environment `Production`) |
+| Push to `dev` touching `infra/` | `infra` | `terraform apply` (environment `Development`) |
+| Push to `dev` touching site code | `site-dev` | build + deploy dev Static Web App `swa-wedding-dev` against the dev API (environment `Development`) |
+| Push to `dev` touching `api/` | `api-dev` | build image to GHCR + update dev Container App `ca-wedding-api-dev` (environment `Development`) |
 
 Flow: feature branch → PR into `dev` → PR from `dev` into `main` → deploy.
 
@@ -25,7 +28,9 @@ Flow: feature branch → PR into `dev` → PR from `dev` into `main` → deploy.
 
 Repo variables (not secret): `ARM_CLIENT_ID`, `ARM_TENANT_ID`, `AZURE_SUBSCRIPTION_ID`.
 Repo secret: `CLOUDFLARE_API_TOKEN`.
-Environment: `Production` (optionally add yourself as a required reviewer).
+Environments: `Production` (optionally add yourself as a required reviewer) and `Development` (no reviewers; created automatically on first use). Terraform creates the federated credential for `Development`, but the first apply that adds it must run from `main` or locally, since a `dev` run can't sign in before it exists.
+
+The dev site lives at the `swa_dev_url` Terraform output (`*.azurestaticapps.net`, no custom domain) and uses the dev Cosmos account and its own Key Vault secrets (`event-password-dev`, `admin-password-dev`, `token-signing-key-dev`); set the real dev passwords the same way as prod.
 
 ## Local dev
 

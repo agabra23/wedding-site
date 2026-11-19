@@ -1,0 +1,51 @@
+name: api-dev
+
+# Builds the API image and rolls it out to the dev Container App (ca-wedding-api-dev).
+on:
+  push:
+    branches: [dev]
+    paths: ['api/**', '.github/workflows/api-dev.yml']
+  workflow_dispatch:
+
+permissions:
+  id-token: write # OIDC sign-in to Azure
+  contents: read
+  packages: write # push to ghcr.io
+
+concurrency:
+  group: api-dev-deploy
+  cancel-in-progress: false
+
+jobs:
+  build-deploy:
+    runs-on: ubuntu-latest
+    environment: Development
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compute lowercase image name
+        run: echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/wedding-api" >> "$GITHUB_ENV"
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: api/WeddingApi
+          push: true
+          tags: ${{ env.IMAGE }}:${{ github.sha }}
+
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ vars.ARM_CLIENT_ID }}
+          tenant-id: ${{ vars.ARM_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Point the dev Container App at the new image
+        run: |
+          az containerapp update \
+            --name ca-wedding-api-dev --resource-group rg-wedding \
+            --image "$IMAGE:${{ github.sha }}"
