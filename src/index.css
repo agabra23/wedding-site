@@ -1,1 +1,44 @@
 @import "tailwindcss";
+
+@font-face {
+  font-family: "Jimmy Script";
+  src: url("/fonts/JimmyScript-Rg.otf") format("opentype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+/*
+ * ==== THEME TOKENS: edit here to restyle the whole site ====
+ * Components use only these semantic utilities (bg-surface, text-ink,
+ * font-display, ...). Never use raw palette colors or hex values in components.
+ * Webfonts: add a Google Fonts <link> in index.html, then change the fonts below.
+ */
+@theme {
+  /* Colors */
+  --color-background: #fafaf9; /* page background */
+  --color-surface: #ffffff; /* header, cards */
+  --color-ink: #292524; /* body text */
+  --color-ink-muted: #78716c; /* secondary text */
+  --color-primary: #292524; /* buttons, active nav */
+  --color-on-primary: #ffffff; /* text on primary */
+  --color-accent: #a8a29e; /* highlights, decoration */
+  --color-heading: #b91c1c; /* headings, logo */
+  --color-border: #e7e5e4; /* dividers, outlines */
+
+  /* Fonts */
+  --font-display: "Jimmy Script", "Pinyon Script", cursive; /* headings, logo */
+  --font-body: "Crimson Pro", Georgia, serif; /* everything else */
+}
+
+@layer base {
+  body {
+    @apply bg-background text-ink font-body antialiased italic uppercase;
+  }
+  h1,
+  h2,
+  h3,
+  .font-display {
+    @apply font-display text-heading not-italic normal-case;
+  }
+}
