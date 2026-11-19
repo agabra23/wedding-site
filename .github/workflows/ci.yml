@@ -29,12 +29,36 @@ jobs:
 
   api:
     runs-on: ubuntu-latest
+    env:
+      COSMOS_IMAGE: mcr.microsoft.com/cosmosdb/linux/azure-cosmos-emulator:vnext-preview
     steps:
       - uses: actions/checkout@v4
+      # A service container is pulled fresh on every run, so keep the 2 GB image as a cached tarball instead.
+      # Bump the key suffix to pick up a newer vnext-preview image.
+      - name: Cache Cosmos emulator image
+        id: cosmos-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/cosmos-emulator.tar
+          key: cosmos-emulator-vnext-preview-v1
+      - name: Load or pull Cosmos emulator image
+        run: |
+          if [ -f ~/cosmos-emulator.tar ]; then
+            docker load -i ~/cosmos-emulator.tar
+          else
+            docker pull "$COSMOS_IMAGE"
+            docker save -o ~/cosmos-emulator.tar "$COSMOS_IMAGE"
+          fi
+      - name: Start Cosmos emulator
+        run: docker run -d --name cosmos -p 8081:8081 "$COSMOS_IMAGE"
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 10.0.x
       - run: dotnet build api/WeddingApi -c Release
+      - name: Wait for Cosmos emulator
+        run: timeout 120 bash -c 'until curl -sf http://localhost:8081/ >/dev/null; do sleep 3; done'
+      - name: API tests
+        run: dotnet test api/WeddingApi.Tests
       - name: Docker image builds
         run: docker build api/WeddingApi
 

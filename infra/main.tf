@@ -51,13 +51,57 @@ resource "azurerm_cosmosdb_sql_database" "db" {
   throughput          = 400 # shared; anything up to 1000 stays free
 }
 
+moved {
+  from = azurerm_cosmosdb_sql_container.parties["parties"]
+  to   = azurerm_cosmosdb_sql_container.parties
+}
+
 resource "azurerm_cosmosdb_sql_container" "parties" {
-  for_each            = toset(["parties", "parties-dev"])
-  name                = each.key
+  name                = "parties"
   resource_group_name = azurerm_resource_group.rg.name
   account_name        = azurerm_cosmosdb_account.cosmos.name
   database_name       = azurerm_cosmosdb_sql_database.db.name
-  partition_key_paths = ["/id"]
+  partition_key_paths = ["/pk"] # ADR-0001: one constant value for every document
+  default_ttl         = -1      # TTL on, no default expiry: only Revocation documents set their own
+}
+
+# ---------- Cosmos DB for local dev (serverless, separate account: ADR-0003) ----------
+# No free_tier_enabled: only one free-tier account is allowed per subscription and prod has it.
+resource "azurerm_cosmosdb_account" "cosmos_dev" {
+  name                = "${var.cosmos_account_name}-dev"
+  location            = azurerm_resource_group.rg.location
+  resource_group_name = azurerm_resource_group.rg.name
+  offer_type          = "Standard"
+  kind                = "GlobalDocumentDB"
+
+  capabilities {
+    name = "EnableServerless"
+  }
+
+  consistency_policy {
+    consistency_level = "Session"
+  }
+
+  geo_location {
+    location          = azurerm_resource_group.rg.location
+    failover_priority = 0
+  }
+}
+
+resource "azurerm_cosmosdb_sql_database" "db_dev" {
+  name                = "wedding"
+  resource_group_name = azurerm_resource_group.rg.name
+  account_name        = azurerm_cosmosdb_account.cosmos_dev.name
+  # no throughput: serverless rejects it
+}
+
+resource "azurerm_cosmosdb_sql_container" "parties_dev" {
+  name                = "parties"
+  resource_group_name = azurerm_resource_group.rg.name
+  account_name        = azurerm_cosmosdb_account.cosmos_dev.name
+  database_name       = azurerm_cosmosdb_sql_database.db_dev.name
+  partition_key_paths = ["/pk"] # ADR-0001
+  default_ttl         = -1      # same as prod: only Revocation documents set their own expiry
 }
 
 # ---------- Static Web App (Free) ----------
@@ -82,6 +126,88 @@ resource "azurerm_static_web_app_custom_domain" "apex" {
   validation_type   = "dns-txt-token"
 }
 
+# ---------- Key Vault: Event Password, Admin Password, token signing key ----------
+# Access policies rather than RBAC: the deploy identity is only Contributor and can't create role assignments.
+resource "azurerm_key_vault" "kv" {
+  name                       = "kv-wedding-${substr(sha1(var.subscription_id), 0, 8)}"
+  location                   = azurerm_resource_group.rg.location
+  resource_group_name        = azurerm_resource_group.rg.name
+  tenant_id                  = data.azurerm_client_config.current.tenant_id
+  sku_name                   = "standard"
+  rbac_authorization_enabled = false
+}
+
+# Whoever runs Terraform (the deploy identity in CI) manages the secrets
+resource "azurerm_key_vault_access_policy" "terraform" {
+  key_vault_id       = azurerm_key_vault.kv.id
+  tenant_id          = data.azurerm_client_config.current.tenant_id
+  object_id          = data.azurerm_client_config.current.object_id
+  secret_permissions = ["Get", "List", "Set", "Delete", "Recover", "Purge"]
+}
+
+resource "azurerm_user_assigned_identity" "api" {
+  name                = "id-wedding-api"
+  location            = azurerm_resource_group.rg.location
+  resource_group_name = azurerm_resource_group.rg.name
+}
+
+resource "azurerm_key_vault_access_policy" "api" {
+  key_vault_id       = azurerm_key_vault.kv.id
+  tenant_id          = data.azurerm_client_config.current.tenant_id
+  object_id          = azurerm_user_assigned_identity.api.principal_id
+  secret_permissions = ["Get"]
+}
+
+# The passwords start as random throwaway values so nobody can sign in with a guessable
+# default. Set the real ones once, outside Terraform (they never enter CI or state):
+#   az keyvault secret set --vault-name <vault> --name event-password --value '...'
+#   az keyvault secret set --vault-name <vault> --name admin-password --value '...'
+# Then restart the API revision so it picks them up.
+resource "random_password" "initial_event_password" {
+  length  = 32
+  special = false
+}
+
+resource "random_password" "initial_admin_password" {
+  length  = 32
+  special = false
+}
+
+resource "azurerm_key_vault_secret" "event_password" {
+  name         = "event-password"
+  key_vault_id = azurerm_key_vault.kv.id
+  value        = random_password.initial_event_password.result
+  depends_on   = [azurerm_key_vault_access_policy.terraform]
+
+  lifecycle {
+    ignore_changes = [value]
+  }
+}
+
+resource "azurerm_key_vault_secret" "admin_password" {
+  name         = "admin-password"
+  key_vault_id = azurerm_key_vault.kv.id
+  value        = random_password.initial_admin_password.result
+  depends_on   = [azurerm_key_vault_access_policy.terraform]
+
+  lifecycle {
+    ignore_changes = [value]
+  }
+}
+
+# Terraform owns the signing key (rotating it signs everyone out)
+resource "random_password" "token_signing_key" {
+  length  = 64
+  special = false
+}
+
+resource "azurerm_key_vault_secret" "token_signing_key" {
+  name         = "token-signing-key"
+  key_vault_id = azurerm_key_vault.kv.id
+  value        = random_password.token_signing_key.result
+  depends_on   = [azurerm_key_vault_access_policy.terraform]
+}
+
 # ---------- Container Apps: environment + always-warm API ----------
 resource "azurerm_container_app_environment" "env" {
   name                = "cae-wedding"
@@ -95,10 +221,35 @@ resource "azurerm_container_app" "api" {
   container_app_environment_id = azurerm_container_app_environment.env.id
   resource_group_name          = azurerm_resource_group.rg.name
   revision_mode                = "Single"
+  depends_on                   = [azurerm_key_vault_access_policy.api]
 
   secret {
     name  = "cosmos-connection"
     value = azurerm_cosmosdb_account.cosmos.primary_sql_connection_string
+  }
+
+  # ADR-0002: shared passwords and token signing key, read from Key Vault by the API's identity
+  identity {
+    type         = "UserAssigned"
+    identity_ids = [azurerm_user_assigned_identity.api.id]
+  }
+
+  secret {
+    name                = "event-password"
+    key_vault_secret_id = azurerm_key_vault_secret.event_password.versionless_id
+    identity            = azurerm_user_assigned_identity.api.id
+  }
+
+  secret {
+    name                = "admin-password"
+    key_vault_secret_id = azurerm_key_vault_secret.admin_password.versionless_id
+    identity            = azurerm_user_assigned_identity.api.id
+  }
+
+  secret {
+    name                = "token-signing-key"
+    key_vault_secret_id = azurerm_key_vault_secret.token_signing_key.versionless_id
+    identity            = azurerm_user_assigned_identity.api.id
   }
 
   ingress {
@@ -125,6 +276,18 @@ resource "azurerm_container_app" "api" {
         secret_name = "cosmos-connection"
       }
       env {
+        name        = "EventPassword"
+        secret_name = "event-password"
+      }
+      env {
+        name        = "AdminPassword"
+        secret_name = "admin-password"
+      }
+      env {
+        name        = "TokenSigningKey"
+        secret_name = "token-signing-key"
+      }
+      env {
         name  = "PartiesContainer"
         value = "parties"
       }
@@ -146,45 +309,6 @@ resource "azurerm_container_app_custom_domain" "api" {
     # The free managed certificate is bound once by CLI (see README)
     ignore_changes = [certificate_binding_type, container_app_environment_certificate_id]
   }
-}
-
-# ---------- Entra ID: admin sign-in app ----------
-resource "random_uuid" "admin_scope" {}
-
-resource "azuread_application" "admin" {
-  display_name     = "wedding-admin"
-  sign_in_audience = "AzureADandPersonalMicrosoftAccount" # work and personal Microsoft accounts
-
-  api {
-    requested_access_token_version = 2
-    oauth2_permission_scope {
-      id                         = random_uuid.admin_scope.result
-      value                      = "access_as_user"
-      type                       = "User"
-      enabled                    = true
-      admin_consent_display_name = "Access the wedding admin API"
-      admin_consent_description  = "Lets the admin page call the wedding API."
-      user_consent_display_name  = "Access the wedding admin API"
-      user_consent_description   = "Lets the admin page call the wedding API."
-    }
-  }
-
-  single_page_application {
-    redirect_uris = [
-      "https://${var.domain}/admin",
-      "https://www.${var.domain}/admin",
-      "http://localhost:5173/admin",
-    ]
-  }
-
-  lifecycle {
-    ignore_changes = [identifier_uris] # managed by the resource below
-  }
-}
-
-resource "azuread_application_identifier_uri" "admin" {
-  application_id = azuread_application.admin.id
-  identifier_uri = "api://${azuread_application.admin.client_id}"
 }
 
 # ---------- Entra ID: GitHub Actions deploy identity (OIDC, no stored secret) ----------
