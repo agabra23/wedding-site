@@ -71,7 +71,7 @@ public sealed class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
     {
         using var client = NewAdminClient();
         var db = (await client.CreateDatabaseAsync(Database)).Database;
-        await db.CreateContainerAsync(Container, Partitioning.Path);
+        await db.CreateContainerAsync(new ContainerProperties(Container, Partitioning.Path) { DefaultTimeToLive = -1 });
     }
 
     async Task IAsyncLifetime.DisposeAsync()

@@ -5,6 +5,7 @@ using System.Text;
 using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.HttpOverrides;
+using Microsoft.Azure.Cosmos;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.JsonWebTokens;
 using Microsoft.IdentityModel.Tokens;
@@ -82,7 +83,7 @@ public sealed class TokenService(AuthSettings settings, TimeProvider clock)
         {
             Issuer = AuthSettings.Issuer,
             Audience = AuthSettings.Issuer,
-            Subject = new ClaimsIdentity([new Claim("role", role)]),
+            Subject = new ClaimsIdentity([new Claim("role", role), new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString("N"))]),
             IssuedAt = now,
             NotBefore = now,
             Expires = now + lifetime,
@@ -113,6 +114,18 @@ public static class AuthExtensions
                 ClockSkew = TimeSpan.Zero,
             };
         });
+        // A revoked token id (logout) is rejected even before the token expires
+        services.AddOptions<JwtBearerOptions>(JwtBearerDefaults.AuthenticationScheme)
+            .Configure<CosmosClient, IConfiguration>((o, cosmos, config) =>
+                o.Events = new JwtBearerEvents
+                {
+                    OnTokenValidated = async ctx =>
+                    {
+                        var jti = ctx.Principal?.FindFirstValue(JwtRegisteredClaimNames.Jti);
+                        if (jti is null || await Revocations.IsRevoked(cosmos.Container(config), jti))
+                            ctx.Fail("Token has been revoked.");
+                    },
+                });
         // Judge expiry by the injected clock so tests can move time
         services.AddOptions<JwtBearerOptions>(JwtBearerDefaults.AuthenticationScheme)
             .Configure<TimeProvider>((o, clock) =>
@@ -151,11 +164,23 @@ public static class AuthExtensions
         });
     }
 
-    public static void MapAuth(this WebApplication app) =>
+    public static void MapAuth(this WebApplication app)
+    {
         app.MapPost("/auth", (AuthRequest req, TokenService tokens) =>
             tokens.RoleFor(req.Password) is { } role
                 ? Results.Ok(new AuthResponse(role, tokens.Issue(role)))
                 : Results.Unauthorized())
             .AllowAnonymous()
             .RequireRateLimiting(Policies.AuthRateLimit);
+
+        // Any authenticated role; the token is already known valid, so it can't be a repeat
+        app.MapPost("/auth/logout", async (ClaimsPrincipal user, CosmosClient cosmos, TimeProvider clock) =>
+        {
+            var jti = user.FindFirstValue(JwtRegisteredClaimNames.Jti);
+            var exp = long.TryParse(user.FindFirstValue(JwtRegisteredClaimNames.Exp), out var e) ? e : 0;
+            if (jti is null || exp == 0) return Results.Unauthorized();
+            await Revocations.Revoke(cosmos.Container(app.Configuration), jti, exp, clock);
+            return Results.NoContent();
+        });
+    }
 }

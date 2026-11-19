@@ -1,5 +1,7 @@
 using System.Net;
 using System.Net.Http.Json;
+using Microsoft.Azure.Cosmos;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace WeddingApi.Tests;
 
@@ -120,5 +122,65 @@ public class AuthRateLimitTests(ApiFactory api) : IClassFixture<ApiFactory>
         // Even the right password is refused once the limit is hit
         var res = await c.PostAsJsonAsync("/auth", new AuthRequest(ApiFactory.EventPassword));
         Assert.Equal(HttpStatusCode.TooManyRequests, res.StatusCode);
+    }
+}
+
+public class LogoutTests(ApiFactory api) : IClassFixture<ApiFactory>
+{
+    [Theory]
+    [InlineData(ApiFactory.EventPassword, HttpStatusCode.Forbidden)]
+    [InlineData(ApiFactory.AdminPassword, HttpStatusCode.OK)]
+    public async Task Token_works_before_logout_and_returns_401_after(string password, HttpStatusCode before)
+    {
+        var c = await api.SignedInClientAsync(password);
+        Assert.Equal(before, (await c.GetAsync("/admin/parties")).StatusCode);
+
+        Assert.Equal(HttpStatusCode.NoContent, (await c.PostAsync("/auth/logout", null)).StatusCode);
+
+        Assert.Equal(HttpStatusCode.Unauthorized, (await c.GetAsync("/admin/parties")).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await c.PostAsJsonAsync("/lookup", new LookupRequest("x", "y"))).StatusCode);
+        // Logging out again is like any other call with a revoked token
+        Assert.Equal(HttpStatusCode.Unauthorized, (await c.PostAsync("/auth/logout", null)).StatusCode);
+    }
+
+    [Fact]
+    public async Task Logging_out_one_token_leaves_other_tokens_for_the_same_role_working()
+    {
+        var first = await api.SignedInClientAsync(ApiFactory.AdminPassword);
+        var second = await api.SignedInClientAsync(ApiFactory.AdminPassword);
+
+        await first.PostAsync("/auth/logout", null);
+
+        Assert.Equal(HttpStatusCode.Unauthorized, (await first.GetAsync("/admin/parties")).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await second.GetAsync("/admin/parties")).StatusCode);
+    }
+
+    [Fact]
+    public async Task Logout_without_a_token_returns_401()
+    {
+        Assert.Equal(HttpStatusCode.Unauthorized, (await api.CreateClient().PostAsync("/auth/logout", null)).StatusCode);
+    }
+
+    [Fact]
+    public async Task Revocation_document_expires_with_the_token()
+    {
+        var token = await api.TokenAsync(ApiFactory.AdminPassword);
+        var jti = new Microsoft.IdentityModel.JsonWebTokens.JsonWebToken(token).Id;
+        var before = api.Clock.GetUtcNow();
+        await ApiFactory.WithToken(api.CreateClient(), token).PostAsync("/auth/logout", null);
+
+        var container = api.Services.GetRequiredService<CosmosClient>().GetContainer(api.Database, ApiFactory.Container);
+        var doc = (await container.ReadItemAsync<Revocation>(Revocation.IdPrefix + jti, new PartitionKey(Partitioning.Value))).Resource;
+
+        Assert.Equal(before.ToUnixTimeSeconds() + (long)AuthSettings.AdminLifetime.TotalSeconds, doc.Exp);
+        Assert.Equal((int)AuthSettings.AdminLifetime.TotalSeconds, doc.Ttl);
+    }
+
+    [Fact]
+    public async Task Auth_still_issues_working_tokens_after_a_logout()
+    {
+        await (await api.SignedInClientAsync(ApiFactory.AdminPassword)).PostAsync("/auth/logout", null);
+        var c = await api.SignedInClientAsync(ApiFactory.AdminPassword);
+        Assert.Equal(HttpStatusCode.OK, (await c.GetAsync("/admin/parties")).StatusCode);
     }
 }
