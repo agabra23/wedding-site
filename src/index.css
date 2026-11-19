@@ -16,29 +16,118 @@
  */
 @theme {
   /* Colors */
-  --color-background: #fafaf9; /* page background */
-  --color-surface: #ffffff; /* header, cards */
+  --color-background: #f5ecdc; /* page background */
+  --color-surface: #faf4e8; /* header, cards */
   --color-ink: #292524; /* body text */
   --color-ink-muted: #78716c; /* secondary text */
-  --color-primary: #292524; /* buttons, active nav */
+  --color-primary: #b91c1c; /* buttons, active nav */
   --color-on-primary: #ffffff; /* text on primary */
   --color-accent: #a8a29e; /* highlights, decoration */
   --color-heading: #b91c1c; /* headings, logo */
-  --color-border: #e7e5e4; /* dividers, outlines */
+  --color-border: #e3d6bf; /* dividers, outlines */
 
   /* Fonts */
   --font-display: "Jimmy Script", "Pinyon Script", cursive; /* headings, logo */
   --font-body: "Crimson Pro", Georgia, serif; /* everything else */
+
+  /* Animations */
+  --animate-fade-in: fade-in 300ms ease-out;
+  @keyframes fade-in {
+    from {
+      opacity: 0;
+      transform: translateY(4px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
 }
 
 @layer base {
   body {
-    @apply bg-background text-ink font-body antialiased italic uppercase;
+    @apply bg-background text-ink font-body antialiased uppercase;
+  }
+  /* Preflight resets text-transform on form controls; make them follow the body. */
+  button,
+  input,
+  select,
+  textarea {
+    text-transform: inherit;
+  }
+  /* Pointer cursor on clickable controls, only where a mouse exists (desktop). */
+  @media (hover: hover) and (pointer: fine) {
+    button:not(:disabled),
+    [role="button"],
+    summary,
+    select,
+    input[type="submit"],
+    input[type="checkbox"],
+    input[type="radio"],
+    label[for] {
+      cursor: pointer;
+    }
   }
   h1,
   h2,
   h3,
   .font-display {
     @apply font-display text-heading not-italic normal-case;
+  }
+}
+
+/*
+ * ==== FORM CONTROLS: restyle here, or override per use with className ====
+ * Classes live in the components layer, so any Tailwind utility passed via
+ * className (e.g. `rounded-full`, `border-primary`) wins over these defaults.
+ */
+@layer components {
+  .btn {
+    @apply bg-primary text-on-primary inline-flex min-h-11 items-center justify-center rounded px-6 py-2 outline-none transition duration-200 ease-out;
+    @apply hover:opacity-80 focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background active:scale-[0.98] disabled:opacity-50;
+  }
+  .input {
+    @apply border-border bg-surface text-ink placeholder:text-ink-muted block min-h-11 w-full rounded border px-3 py-2 outline-none transition duration-200 ease-out;
+    @apply hover:border-accent focus:border-primary focus:ring-2 focus:ring-primary/20 disabled:opacity-50;
+  }
+  .choice {
+    @apply inline-flex min-h-11 items-center gap-3;
+  }
+  .radio,
+  .checkbox {
+    @apply border-border bg-surface relative m-0 grid size-5 shrink-0 appearance-none place-content-center border outline-none transition duration-200 ease-out;
+    @apply hover:border-accent focus-visible:ring-2 focus-visible:ring-primary/40 checked:border-primary checked:bg-primary disabled:opacity-50;
+  }
+  .radio {
+    @apply rounded-full;
+  }
+  .checkbox {
+    @apply rounded;
+  }
+  .radio::after {
+    content: "";
+    @apply bg-on-primary size-2 scale-0 rounded-full transition-transform duration-200 ease-out;
+  }
+  .radio:checked::after {
+    @apply scale-100;
+  }
+  .checkbox::after {
+    content: "";
+    @apply bg-on-primary size-3 scale-0 transition-transform duration-200 ease-out;
+    clip-path: polygon(14% 52%, 0 66%, 38% 100%, 100% 22%, 86% 8%, 38% 72%);
+  }
+  .checkbox:checked::after {
+    @apply scale-100;
+  }
+}
+
+/* Reduced motion: collapse all animation and transitions to near-instant. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  ::before,
+  ::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
   }
 }
