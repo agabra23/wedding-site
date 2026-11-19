@@ -8,6 +8,7 @@ public class GuestEditTests(ApiFactory api) : IClassFixture<ApiFactory>
     record AddRequest(string? PartyId, GuestName[] Guests);
     record Name(string? FirstName, string? LastName);
     record LookupBody(string FirstName, string LastName);
+    record LookupResponse(PartyDto Party);
 
     static string Unique() => Guid.NewGuid().ToString("N");
 
@@ -109,5 +110,89 @@ public class GuestEditTests(ApiFactory api) : IClassFixture<ApiFactory>
         var p = await Seed(Unique());
         Assert.Equal(HttpStatusCode.Forbidden, (await Rename(p.Guests[0].Id, new Name("Z", null), ApiFactory.EventPassword)).StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, (await Remove(p.Guests[0].Id, ApiFactory.EventPassword)).StatusCode);
+    }
+
+    async Task<HttpResponseMessage> Move(string guestId, string? partyId, string password = ApiFactory.AdminPassword) =>
+        await (await api.SignedInClientAsync(password)).PostAsJsonAsync($"/admin/guests/{guestId}/move", new { partyId });
+
+    async Task<List<PartyDto>> Parties() =>
+        (await (await api.SignedInClientAsync(ApiFactory.AdminPassword)).GetFromJsonAsync<List<PartyDto>>("/admin/parties"))!;
+
+    [Fact]
+    public async Task Move_into_existing_party_adds_and_removes_and_keeps_rsvp()
+    {
+        var a = await Seed(Unique());
+        var b = await Seed(Unique());
+        var admin = await api.SignedInClientAsync(ApiFactory.AdminPassword);
+        var set = await admin.PutAsJsonAsync($"/admin/guests/{a.Guests[0].Id}/rsvp", new { rsvp = "attending" });
+        Assert.Equal(HttpStatusCode.OK, set.StatusCode);
+        var before = (await set.Content.ReadFromJsonAsync<PartyDto>())!.Guests[0];
+        Assert.Equal("admin", before.RsvpChangedBy);
+
+        var res = await Move(a.Guests[0].Id, b.Id);
+        Assert.Equal(HttpStatusCode.OK, res.StatusCode);
+        var dest = (await res.Content.ReadFromJsonAsync<PartyDto>())!;
+        Assert.Equal(b.Id, dest.Id);
+        Assert.Contains(dest.Guests, g => g.Id == before.Id && g.Rsvp == before.Rsvp
+            && g.RsvpChangedAt == before.RsvpChangedAt && g.RsvpChangedBy == before.RsvpChangedBy);
+
+        var parties = await Parties();
+        Assert.DoesNotContain(parties.Single(x => x.Id == a.Id).Guests, g => g.Id == before.Id);
+        Assert.Equal(3, parties.Single(x => x.Id == b.Id).Guests.Count);
+    }
+
+    [Fact]
+    public async Task Move_without_party_creates_a_new_party_for_the_guest()
+    {
+        var a = await Seed(Unique());
+        var res = await Move(a.Guests[0].Id, null);
+        Assert.Equal(HttpStatusCode.OK, res.StatusCode);
+        var dest = (await res.Content.ReadFromJsonAsync<PartyDto>())!;
+        Assert.NotEqual(a.Id, dest.Id);
+        Assert.Equal([a.Guests[0].Id], dest.Guests.Select(g => g.Id));
+        Assert.Equal([a.Guests[1].Id], (await Parties()).Single(x => x.Id == a.Id).Guests.Select(g => g.Id));
+    }
+
+    [Fact]
+    public async Task Moving_the_only_guest_deletes_the_old_party()
+    {
+        var a = await Seed(Unique());
+        var b = await Seed(Unique());
+        await Remove(a.Guests[1].Id);
+        Assert.Equal(HttpStatusCode.OK, (await Move(a.Guests[0].Id, b.Id)).StatusCode);
+        Assert.DoesNotContain(await Parties(), x => x.Id == a.Id);
+    }
+
+    [Fact]
+    public async Task Lookup_returns_the_destination_party_after_move()
+    {
+        var u = Unique();
+        var a = await Seed(u);
+        var b = await Seed(Unique());
+        await Move(a.Guests[0].Id, b.Id);
+        var guest = await api.SignedInClientAsync(ApiFactory.EventPassword);
+        var res = await guest.PostAsJsonAsync("/lookup", new LookupBody("Ann", u));
+        var body = await res.Content.ReadFromJsonAsync<LookupResponse>();
+        Assert.Equal(b.Id, body!.Party.Id);
+    }
+
+    [Fact]
+    public async Task Move_to_current_party_changes_nothing()
+    {
+        var a = await Seed(Unique());
+        var res = await Move(a.Guests[0].Id, a.Id);
+        Assert.Equal(HttpStatusCode.OK, res.StatusCode);
+        Assert.Equal(a.Id, (await res.Content.ReadFromJsonAsync<PartyDto>())!.Id);
+        Assert.Equal(2, (await Parties()).Single(x => x.Id == a.Id).Guests.Count);
+    }
+
+    [Fact]
+    public async Task Move_unknown_guest_or_party_is_404_and_guest_tokens_rejected()
+    {
+        var a = await Seed(Unique());
+        Assert.Equal(HttpStatusCode.NotFound, (await Move(Unique(), a.Id)).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await Move(a.Guests[0].Id, Unique())).StatusCode);
+        Assert.Equal(2, (await Parties()).Single(x => x.Id == a.Id).Guests.Count);
+        Assert.Equal(HttpStatusCode.Forbidden, (await Move(a.Guests[0].Id, null, ApiFactory.EventPassword)).StatusCode);
     }
 }
