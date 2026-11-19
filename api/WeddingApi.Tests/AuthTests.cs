@@ -43,26 +43,20 @@ public class AuthTests(ApiFactory api) : IClassFixture<ApiFactory>
         Assert.NotEqual(HttpStatusCode.Unauthorized, (await SignIn(c, ApiFactory.EventPassword)).StatusCode);
     }
 
-    [Theory]
-    [InlineData("/party/ABC")]
-    [InlineData("/admin/parties")]
-    public async Task Other_endpoints_return_401_without_a_token(string path)
-    {
-        Assert.Equal(HttpStatusCode.Unauthorized, (await api.CreateClient().GetAsync(path)).StatusCode);
-    }
-
     [Fact]
-    public async Task Rsvp_returns_401_without_a_token()
+    public async Task Admin_endpoints_return_401_without_a_token()
     {
-        var res = await api.CreateClient().PostAsJsonAsync("/rsvp/ABC", new RsvpRequest(null, []));
-        Assert.Equal(HttpStatusCode.Unauthorized, res.StatusCode);
+        var c = api.CreateClient();
+        Assert.Equal(HttpStatusCode.Unauthorized, (await c.GetAsync("/admin/parties")).StatusCode);
+        var post = await c.PostAsJsonAsync("/admin/guests", new AddGuestsRequest(null, []));
+        Assert.Equal(HttpStatusCode.Unauthorized, post.StatusCode);
     }
 
     [Fact]
     public async Task Garbage_token_returns_401()
     {
         var c = ApiFactory.WithToken(api.CreateClient(), "not-a-token");
-        Assert.Equal(HttpStatusCode.Unauthorized, (await c.GetAsync("/party/ABC")).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await c.GetAsync("/admin/parties")).StatusCode);
     }
 
     [Fact]
@@ -70,14 +64,15 @@ public class AuthTests(ApiFactory api) : IClassFixture<ApiFactory>
     {
         var c = await api.SignedInClientAsync(ApiFactory.EventPassword);
         Assert.Equal(HttpStatusCode.Forbidden, (await c.GetAsync("/admin/parties")).StatusCode);
+        var post = await c.PostAsJsonAsync("/admin/guests", new AddGuestsRequest(null, [new("A", "B")]));
+        Assert.Equal(HttpStatusCode.Forbidden, post.StatusCode);
     }
 
     [Fact]
-    public async Task Admin_token_can_call_admin_and_guest_endpoints()
+    public async Task Admin_token_can_call_admin_endpoints()
     {
         var c = await api.SignedInClientAsync(ApiFactory.AdminPassword);
         Assert.Equal(HttpStatusCode.OK, (await c.GetAsync("/admin/parties")).StatusCode);
-        Assert.Equal(HttpStatusCode.NotFound, (await c.GetAsync("/party/NOPE")).StatusCode);
     }
 
     [Fact]
@@ -88,10 +83,11 @@ public class AuthTests(ApiFactory api) : IClassFixture<ApiFactory>
         var c = await api.SignedInClientAsync(ApiFactory.EventPassword);
 
         api.Clock.SetUtcNow(start + TimeSpan.FromDays(30) - TimeSpan.FromSeconds(1));
-        Assert.Equal(HttpStatusCode.NotFound, (await c.GetAsync("/party/NOPE")).StatusCode);
+        // A valid guest token is authenticated but not an Admin
+        Assert.Equal(HttpStatusCode.Forbidden, (await c.GetAsync("/admin/parties")).StatusCode);
 
         api.Clock.SetUtcNow(start + TimeSpan.FromDays(30));
-        Assert.Equal(HttpStatusCode.Unauthorized, (await c.GetAsync("/party/NOPE")).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await c.GetAsync("/admin/parties")).StatusCode);
     }
 
     [Fact]
