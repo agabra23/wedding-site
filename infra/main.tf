@@ -58,6 +58,7 @@ resource "azurerm_cosmosdb_sql_container" "parties" {
   account_name        = azurerm_cosmosdb_account.cosmos.name
   database_name       = azurerm_cosmosdb_sql_database.db.name
   partition_key_paths = ["/pk"] # ADR-0001: one constant value for every document
+  default_ttl         = -1 # TTL on, no default expiry: only Revocation documents set their own
 }
 
 # ---------- Static Web App (Free) ----------
