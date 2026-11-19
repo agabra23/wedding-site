@@ -82,10 +82,86 @@ resource "azurerm_static_web_app_custom_domain" "apex" {
   validation_type   = "dns-txt-token"
 }
 
-# ---------- Token signing key (rotating it signs everyone out) ----------
+# ---------- Key Vault: Event Password, Admin Password, token signing key ----------
+# Access policies rather than RBAC: the deploy identity is only Contributor and can't create role assignments.
+resource "azurerm_key_vault" "kv" {
+  name                       = "kv-wedding-${substr(sha1(var.subscription_id), 0, 8)}"
+  location                   = azurerm_resource_group.rg.location
+  resource_group_name        = azurerm_resource_group.rg.name
+  tenant_id                  = data.azurerm_client_config.current.tenant_id
+  sku_name                   = "standard"
+  rbac_authorization_enabled = false
+}
+
+# Whoever runs Terraform (the deploy identity in CI) manages the secrets
+resource "azurerm_key_vault_access_policy" "terraform" {
+  key_vault_id       = azurerm_key_vault.kv.id
+  tenant_id          = data.azurerm_client_config.current.tenant_id
+  object_id          = data.azurerm_client_config.current.object_id
+  secret_permissions = ["Get", "List", "Set", "Delete", "Recover", "Purge"]
+}
+
+resource "azurerm_user_assigned_identity" "api" {
+  name                = "id-wedding-api"
+  location            = azurerm_resource_group.rg.location
+  resource_group_name = azurerm_resource_group.rg.name
+}
+
+resource "azurerm_key_vault_access_policy" "api" {
+  key_vault_id       = azurerm_key_vault.kv.id
+  tenant_id          = data.azurerm_client_config.current.tenant_id
+  object_id          = azurerm_user_assigned_identity.api.principal_id
+  secret_permissions = ["Get"]
+}
+
+# The passwords start as random throwaway values so nobody can sign in with a guessable
+# default. Set the real ones once, outside Terraform (they never enter CI or state):
+#   az keyvault secret set --vault-name <vault> --name event-password --value '...'
+#   az keyvault secret set --vault-name <vault> --name admin-password --value '...'
+# Then restart the API revision so it picks them up.
+resource "random_password" "initial_event_password" {
+  length  = 32
+  special = false
+}
+
+resource "random_password" "initial_admin_password" {
+  length  = 32
+  special = false
+}
+
+resource "azurerm_key_vault_secret" "event_password" {
+  name         = "event-password"
+  key_vault_id = azurerm_key_vault.kv.id
+  value        = random_password.initial_event_password.result
+  depends_on   = [azurerm_key_vault_access_policy.terraform]
+
+  lifecycle {
+    ignore_changes = [value]
+  }
+}
+
+resource "azurerm_key_vault_secret" "admin_password" {
+  name         = "admin-password"
+  key_vault_id = azurerm_key_vault.kv.id
+  value        = random_password.initial_admin_password.result
+  depends_on   = [azurerm_key_vault_access_policy.terraform]
+
+  lifecycle {
+    ignore_changes = [value]
+  }
+}
+
+# Terraform owns the signing key (rotating it signs everyone out)
 resource "random_password" "token_signing_key" {
   length  = 64
   special = false
+}
+
+resource "azurerm_key_vault_secret" "token_signing_key" {
+  name         = "token-signing-key"
+  key_vault_id = azurerm_key_vault.kv.id
+  value        = random_password.token_signing_key.result
+  depends_on   = [azurerm_key_vault_access_policy.terraform]
 }
 
 # ---------- Container Apps: environment + always-warm API ----------
@@ -101,26 +177,35 @@ resource "azurerm_container_app" "api" {
   container_app_environment_id = azurerm_container_app_environment.env.id
   resource_group_name          = azurerm_resource_group.rg.name
   revision_mode                = "Single"
+  depends_on                   = [azurerm_key_vault_access_policy.api]
 
   secret {
     name  = "cosmos-connection"
     value = azurerm_cosmosdb_account.cosmos.primary_sql_connection_string
   }
 
-  # ADR-0002: shared passwords and the key that signs the tokens they trade for
-  secret {
-    name  = "event-password"
-    value = var.event_password
+  # ADR-0002: shared passwords and token signing key, read from Key Vault by the API's identity
+  identity {
+    type         = "UserAssigned"
+    identity_ids = [azurerm_user_assigned_identity.api.id]
   }
 
   secret {
-    name  = "admin-password"
-    value = var.admin_password
+    name                = "event-password"
+    key_vault_secret_id = azurerm_key_vault_secret.event_password.versionless_id
+    identity            = azurerm_user_assigned_identity.api.id
   }
 
   secret {
-    name  = "token-signing-key"
-    value = random_password.token_signing_key.result
+    name                = "admin-password"
+    key_vault_secret_id = azurerm_key_vault_secret.admin_password.versionless_id
+    identity            = azurerm_user_assigned_identity.api.id
+  }
+
+  secret {
+    name                = "token-signing-key"
+    key_vault_secret_id = azurerm_key_vault_secret.token_signing_key.versionless_id
+    identity            = azurerm_user_assigned_identity.api.id
   }
 
   ingress {
