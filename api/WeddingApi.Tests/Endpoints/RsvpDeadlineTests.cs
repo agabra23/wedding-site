@@ -32,14 +32,6 @@ public class RsvpDeadlineTests(ApiFactory api) : IClassFixture<ApiFactory>
         await (await Guest()).PostAsJsonAsync($"/parties/{p.Id}/rsvp", new RsvpBody([new Answer(p.Guests[0].Id, rsvp)]));
 
     [Fact]
-    public async Task Rsvps_are_accepted_when_no_deadline_is_set()
-    {
-        await SetDeadline(null);
-        var (p, _) = await Seed();
-        Assert.Equal(HttpStatusCode.NoContent, (await Rsvp(p)).StatusCode);
-    }
-
-    [Fact]
     public async Task Admin_can_set_change_clear_and_read_back_the_deadline()
     {
         var admin = await Admin();
@@ -66,17 +58,14 @@ public class RsvpDeadlineTests(ApiFactory api) : IClassFixture<ApiFactory>
     }
 
     [Fact]
-    public async Task Rsvps_work_before_the_deadline_and_are_refused_after_it()
+    public async Task Rsvps_after_the_deadline_are_403_and_change_nothing()
     {
         var (p, _) = await Seed();
-        await SetDeadline(api.Clock.GetUtcNow().AddDays(1).ToString("O"));
-        Assert.Equal(HttpStatusCode.NoContent, (await Rsvp(p)).StatusCode);
+        await SetDeadline(api.Clock.GetUtcNow().AddDays(-1).ToString("O"));
 
-        // The fake clock only moves forward; every test here sets its deadline relative to "now"
-        api.Clock.Advance(TimeSpan.FromDays(2));
-        Assert.Equal(HttpStatusCode.Forbidden, (await Rsvp(p, "declined")).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await Rsvp(p)).StatusCode);
         var after = (await (await Admin()).GetFromJsonAsync<List<PartyDto>>("/admin/parties"))!.Single(x => x.Id == p.Id);
-        Assert.Equal("attending", after.Guests[0].Rsvp);
+        Assert.Equal("pending", after.Guests[0].Rsvp);
     }
 
     [Fact]

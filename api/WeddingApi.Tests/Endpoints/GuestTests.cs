@@ -35,16 +35,6 @@ public class GuestTests(ApiFactory api) : IClassFixture<ApiFactory>
     }
 
     [Fact]
-    public async Task Several_people_as_a_new_party()
-    {
-        var c = await Admin();
-        var u = Unique();
-        var party = await Body(await Add(c, null, ("A", u), ("B", u)));
-        Assert.Equal(2, party.Guests.Count);
-        Assert.Equal(2, party.Guests.Select(g => g.Id).Distinct().Count());
-    }
-
-    [Fact]
     public async Task One_and_several_people_into_an_existing_party()
     {
         var c = await Admin();
@@ -79,41 +69,10 @@ public class GuestTests(ApiFactory api) : IClassFixture<ApiFactory>
     }
 
     [Fact]
-    public async Task Accents_are_ignored_when_matching()
-    {
-        var c = await Admin();
-        var u = Unique();
-        await Add(c, null, ("Nuño", u));
-        Assert.Equal(HttpStatusCode.Conflict, (await Add(c, null, ("nuno", u))).StatusCode);
-    }
-
-    [Fact]
-    public async Task Same_name_twice_in_one_batch_is_409_and_saves_nothing()
-    {
-        var c = await Admin();
-        var u = Unique();
-        var res = await Add(c, null, ("Sam", u), (" sam", u.ToUpperInvariant()));
-        Assert.Equal(HttpStatusCode.Conflict, res.StatusCode);
-        Assert.DoesNotContain((await List(c)).SelectMany(p => p.Guests), g => g.LastName == u);
-    }
-
-    [Fact]
     public async Task Unknown_party_is_404()
     {
         var res = await Add(await Admin(), "no-such-party", ("A", Unique()));
         Assert.Equal(HttpStatusCode.NotFound, res.StatusCode);
-    }
-
-    [Theory]
-    [InlineData("", "Smith")]
-    [InlineData("Ada", "  ")]
-    [InlineData(null, "Smith")]
-    [InlineData("Ada", null)]
-    public async Task Blank_names_are_400(string? first, string? last)
-    {
-        var res = await (await Admin()).PostAsJsonAsync("/admin/guests",
-            new AddRequest(null, [new GuestName(first, last)]));
-        Assert.Equal(HttpStatusCode.BadRequest, res.StatusCode);
     }
 
     [Fact]

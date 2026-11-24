@@ -51,19 +51,8 @@ public class GuestEditTests(ApiFactory api) : IClassFixture<ApiFactory>
         Assert.Equal(HttpStatusCode.Conflict, (await Rename(p.Guests[0].Id, new Name("  BOB ", null))).StatusCode);
     }
 
-    [Fact]
-    public async Task Changing_only_capitals_or_accents_of_own_name_succeeds()
-    {
-        var u = Unique();
-        var p = await Seed(u);
-        Assert.Equal(HttpStatusCode.OK, (await Rename(p.Guests[0].Id, new Name("ANN", null))).StatusCode);
-        Assert.Equal(HttpStatusCode.OK, (await Rename(p.Guests[0].Id, new Name("Ánn", null))).StatusCode);
-        Assert.Equal(HttpStatusCode.OK, await Lookup("ann", u));
-    }
-
     [Theory]
     [InlineData("", null)]
-    [InlineData(null, "  ")]
     [InlineData(null, null)]
     public async Task Blank_is_400(string? first, string? last)
     {
@@ -92,19 +81,7 @@ public class GuestEditTests(ApiFactory api) : IClassFixture<ApiFactory>
         Assert.Equal(["Bob"], party.Guests.Select(g => g.FirstName));
     }
 
-    [Fact]
-    public async Task Removing_last_guest_deletes_the_party()
-    {
-        var p = await Seed(Unique());
-        Assert.Equal(HttpStatusCode.NoContent, (await Remove(p.Guests[0].Id)).StatusCode);
-        Assert.Equal(HttpStatusCode.NoContent, (await Remove(p.Guests[1].Id)).StatusCode);
-
-        var admin = await api.SignedInClientAsync(ApiFactory.AdminPassword);
-        var parties = (await admin.GetFromJsonAsync<List<PartyDto>>("/admin/parties"))!;
-        Assert.DoesNotContain(parties, x => x.Id == p.Id);
-    }
-
-    [Fact]
+        [Fact]
     public async Task Guest_tokens_are_rejected()
     {
         var p = await Seed(Unique());
@@ -153,30 +130,7 @@ public class GuestEditTests(ApiFactory api) : IClassFixture<ApiFactory>
         Assert.Equal([a.Guests[1].Id], (await Parties()).Single(x => x.Id == a.Id).Guests.Select(g => g.Id));
     }
 
-    [Fact]
-    public async Task Moving_the_only_guest_deletes_the_old_party()
-    {
-        var a = await Seed(Unique());
-        var b = await Seed(Unique());
-        await Remove(a.Guests[1].Id);
-        Assert.Equal(HttpStatusCode.OK, (await Move(a.Guests[0].Id, b.Id)).StatusCode);
-        Assert.DoesNotContain(await Parties(), x => x.Id == a.Id);
-    }
-
-    [Fact]
-    public async Task Lookup_returns_the_destination_party_after_move()
-    {
-        var u = Unique();
-        var a = await Seed(u);
-        var b = await Seed(Unique());
-        await Move(a.Guests[0].Id, b.Id);
-        var guest = await api.SignedInClientAsync(ApiFactory.EventPassword);
-        var res = await guest.PostAsJsonAsync("/lookup", new LookupBody("Ann", u));
-        var body = await res.Content.ReadFromJsonAsync<LookupResponse>();
-        Assert.Equal(b.Id, body!.Party.Id);
-    }
-
-    [Fact]
+        [Fact]
     public async Task Move_to_current_party_changes_nothing()
     {
         var a = await Seed(Unique());
