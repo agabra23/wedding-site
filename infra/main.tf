@@ -500,7 +500,7 @@ resource "azurerm_role_assignment" "deploy" {
   principal_id         = azuread_service_principal.deploy.object_id
 }
 
-# ---------- Cloudflare DNS (all DNS only, never proxied) ----------
+# ---------- Cloudflare DNS (DNS only, except the apex, which is proxied so it can redirect to www) ----------
 resource "cloudflare_dns_record" "www" {
   zone_id = var.cloudflare_zone_id
   name    = "www.${var.domain}"
@@ -525,7 +525,31 @@ resource "cloudflare_dns_record" "apex" {
   type    = "CNAME" # Cloudflare flattens it at the root
   content = azurerm_static_web_app.site.default_host_name
   ttl     = 1
-  proxied = false
+  proxied = true # must be proxied for the redirect rule below to run
+}
+
+# www is the canonical host: the bare domain 301s to it, keeping path and query.
+resource "cloudflare_ruleset" "apex_to_www" {
+  zone_id     = var.cloudflare_zone_id
+  name        = "Redirect apex to www"
+  description = "Send ${var.domain} to www.${var.domain}"
+  kind        = "zone"
+  phase       = "http_request_dynamic_redirect"
+  rules = [{
+    action      = "redirect"
+    description = "apex to www"
+    expression  = "(http.host eq \"${var.domain}\")"
+    action_parameters = {
+      from_value = {
+        status_code           = 301
+        preserve_query_string = true
+        target_url = {
+          expression = "concat(\"https://www.${var.domain}\", http.request.uri.path)"
+        }
+      }
+    }
+  }]
+  depends_on = [cloudflare_dns_record.apex]
 }
 
 resource "cloudflare_dns_record" "apex_validation" {
