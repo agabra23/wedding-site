@@ -36,35 +36,17 @@ public static class GuestEdit
 
         app.MapPatch("/admin/guests/{guestId}", async (string guestId, RenameGuestRequest req, CosmosClient cosmos) =>
         {
-            if ((req.FirstName is null && req.LastName is null)
-                || (req.FirstName is not null && string.IsNullOrWhiteSpace(req.FirstName))
-                || (req.LastName is not null && string.IsNullOrWhiteSpace(req.LastName)))
+            if (req.FirstName is null && req.LastName is null)
                 return Results.BadRequest("Names can't be blank.");
 
             var container = cosmos.Container(app.Configuration);
             var (party, etag) = await FindParty(container, guestId);
             if (party is null) return Results.NotFound();
 
-            var current = party.Guests.First(g => g.Id == guestId);
-            var renamed = current with
-            {
-                FirstName = req.FirstName?.Trim() ?? current.FirstName,
-                LastName = req.LastName?.Trim() ?? current.LastName,
-            };
-            renamed = renamed with
-            {
-                FirstNameNormalized = Names.Normalize(renamed.FirstName),
-                LastNameNormalized = Names.Normalize(renamed.LastName),
-            };
+            var result = new GuestList(await AllParties(container)).Rename(party, guestId, req.FirstName, req.LastName);
+            if (result.Refusal is { } refusal) return refusal.ToHttp();
 
-            var clash = (await AllParties(container)).SelectMany(p => p.Guests)
-                .Any(g => g.Id != guestId
-                    && g.FirstNameNormalized == renamed.FirstNameNormalized
-                    && g.LastNameNormalized == renamed.LastNameNormalized);
-            if (clash)
-                return Results.Conflict($"A guest named {renamed.FirstName} {renamed.LastName} already exists.");
-
-            var updated = party with { Guests = party.Guests.Select(g => g.Id == guestId ? renamed : g).ToList() };
+            var updated = result.Value;
             try
             {
                 await container.ReplaceItemAsync(updated, updated.Id, pk, new ItemRequestOptions { IfMatchEtag = etag });
@@ -72,7 +54,7 @@ public static class GuestEdit
             }
             catch (CosmosException e) when (e.StatusCode == HttpStatusCode.PreconditionFailed)
             {
-                return Results.Conflict("This party was just changed elsewhere. Please try again.");
+                return Results.Conflict(RefusalResults.ChangedElsewhere);
             }
         }).RequireAuthorization(Policies.Admin);
 
@@ -82,19 +64,21 @@ public static class GuestEdit
             var (party, etag) = await FindParty(container, guestId);
             if (party is null) return Results.NotFound();
 
-            var remaining = party.Guests.Where(g => g.Id != guestId).ToList();
+            var result = party.Remove(guestId);
+            if (result.Refusal is { } refusal) return refusal.ToHttp();
+
             var options = new ItemRequestOptions { IfMatchEtag = etag };
             try
             {
-                if (remaining.Count == 0)
+                if (result.Value is PartyChange.Gone)
                     await container.DeleteItemAsync<Party>(party.Id, pk, options);
                 else
-                    await container.ReplaceItemAsync(party with { Guests = remaining }, party.Id, pk, options);
+                    await container.ReplaceItemAsync(result.Value.Party, party.Id, pk, options);
                 return Results.NoContent();
             }
             catch (CosmosException e) when (e.StatusCode == HttpStatusCode.PreconditionFailed)
             {
-                return Results.Conflict("This party was just changed elsewhere. Please try again.");
+                return Results.Conflict(RefusalResults.ChangedElsewhere);
             }
         }).RequireAuthorization(Policies.Admin);
 
@@ -105,11 +89,10 @@ public static class GuestEdit
             if (source is null) return Results.NotFound();
 
             var destId = string.IsNullOrWhiteSpace(req?.PartyId) ? null : req.PartyId;
-            if (destId == source.Id) return Results.Ok(PartyDto.From(source));
 
-            Party? dest = null;
+            Party? dest = destId == source.Id ? source : null;
             string? destEtag = null;
-            if (destId is not null)
+            if (destId is not null && dest is null)
             {
                 try
                 {
@@ -123,29 +106,28 @@ public static class GuestEdit
                 }
             }
 
-            var guest = source.Guests.First(g => g.Id == guestId);
-            var remaining = source.Guests.Where(g => g.Id != guestId).ToList();
-            var result = dest is null
-                ? new Party(Guid.NewGuid().ToString("N"), [guest])
-                : dest with { Guests = [.. dest.Guests, guest] };
+            var result = source.Move(guestId, dest);
+            if (result.Refusal is { } refusal) return refusal.ToHttp();
+            var (from, to) = result.Value;
+            if (to is PartyChange.Unchanged) return Results.Ok(PartyDto.From(to.Party));
 
             // ADR-0001: one transactional batch, so the Guest is never in two Parties or none
             var batch = container.CreateTransactionalBatch(pk);
             var sourceOptions = new TransactionalBatchItemRequestOptions { IfMatchEtag = sourceEtag };
-            if (remaining.Count == 0)
+            if (from is PartyChange.Gone)
                 batch.DeleteItem(source.Id, sourceOptions);
             else
-                batch.ReplaceItem(source.Id, source with { Guests = remaining }, sourceOptions);
-            if (dest is null)
-                batch.CreateItem(result);
+                batch.ReplaceItem(source.Id, from.Party, sourceOptions);
+            if (to is PartyChange.Created)
+                batch.CreateItem(to.Party);
             else
-                batch.ReplaceItem(result.Id, result, new TransactionalBatchItemRequestOptions { IfMatchEtag = destEtag });
+                batch.ReplaceItem(to.Party.Id, to.Party, new TransactionalBatchItemRequestOptions { IfMatchEtag = destEtag });
 
             using var response = await batch.ExecuteAsync();
-            if (response.IsSuccessStatusCode) return Results.Ok(PartyDto.From(result));
+            if (response.IsSuccessStatusCode) return Results.Ok(PartyDto.From(to.Party));
             if (response.StatusCode is HttpStatusCode.PreconditionFailed or HttpStatusCode.Conflict
                 || Enumerable.Range(0, response.Count).Any(i => response[i].StatusCode == HttpStatusCode.PreconditionFailed))
-                return Results.Conflict("This party was just changed elsewhere. Please try again.");
+                return Results.Conflict(RefusalResults.ChangedElsewhere);
             return Results.Problem($"Move failed ({(int)response.StatusCode}).");
         }).RequireAuthorization(Policies.Admin);
     }

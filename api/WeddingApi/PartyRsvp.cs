@@ -6,22 +6,16 @@ public record RsvpRequest(List<RsvpAnswer>? Answers);
 
 public static class PartyRsvp
 {
-    static readonly string[] Allowed = ["attending", "declined"];
-
     public static void MapPartyRsvp(this WebApplication app)
     {
         var pk = new PartitionKey(Partitioning.Value);
 
         app.MapPost("/parties/{partyId}/rsvp", async (string partyId, RsvpRequest req, CosmosClient cosmos, TimeProvider clock) =>
         {
-            if (req.Answers is not { Count: > 0 } answers
-                || answers.Any(a => string.IsNullOrEmpty(a.GuestId) || !Allowed.Contains(a.Rsvp)))
+            if (req.Answers is not { Count: > 0 } answers)
                 return Results.BadRequest("Answer attending or declined for at least one guest.");
 
             var container = cosmos.Container(app.Configuration);
-            if (SettingsStore.IsPast(await SettingsStore.GetRsvpDeadline(container), clock))
-                return Results.Json("The RSVP deadline has passed.", statusCode: StatusCodes.Status403Forbidden);
-
             Party party;
             string etag;
             try
@@ -35,20 +29,11 @@ public static class PartyRsvp
                 return Results.NotFound();
             }
 
-            var ids = party.Guests.Select(g => g.Id).ToHashSet();
-            if (answers.Any(a => !ids.Contains(a.GuestId!)))
-                return Results.BadRequest("A guest does not belong to this party.");
+            var deadline = await SettingsStore.GetRsvpDeadline(container);
+            var result = party.AnswerAsGuest(answers, clock.GetUtcNow().UtcDateTime, deadline);
+            if (result.Refusal is { } refusal) return refusal.ToHttp();
 
-            var now = clock.GetUtcNow().UtcDateTime;
-            // Last answer wins if a guest is listed twice
-            var byGuest = answers.GroupBy(a => a.GuestId!).ToDictionary(g => g.Key, g => g.Last().Rsvp!);
-            var updated = party with
-            {
-                Guests = party.Guests.Select(g => byGuest.TryGetValue(g.Id, out var r)
-                    ? g with { Rsvp = r, RsvpChangedAt = now, RsvpChangedBy = "guest" }
-                    : g).ToList()
-            };
-
+            var updated = result.Value;
             try
             {
                 await container.ReplaceItemAsync(updated, updated.Id, pk, new ItemRequestOptions { IfMatchEtag = etag });
@@ -56,7 +41,7 @@ public static class PartyRsvp
             }
             catch (CosmosException e) when (e.StatusCode == HttpStatusCode.PreconditionFailed)
             {
-                return Results.Conflict("This party was just changed elsewhere. Please try again.");
+                return Results.Conflict(RefusalResults.ChangedElsewhere);
             }
         }).RequireAuthorization(Policies.Guest);
     }

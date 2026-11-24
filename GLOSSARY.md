@@ -12,6 +12,10 @@ _Avoid_: Invitee, attendee, person
 A group of Guests who are invited together and may RSVP on each other's behalf.
 _Avoid_: Household, invitation, group, family
 
+**Guest List**:
+Every Guest invited to the wedding, across all Parties. No two Guests on the Guest List share a full name.
+_Avoid_: Invite list, roster
+
 **RSVP**:
 A Guest's reply to the invitation: attending or declining. Each Guest has their own RSVP, which any member of their Party may give or change.
 _Avoid_: Response, reply

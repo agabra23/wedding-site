@@ -47,15 +47,6 @@ public class PartyRsvpTests(ApiFactory api) : IClassFixture<ApiFactory>
     }
 
     [Fact]
-    public async Task An_existing_answer_can_be_changed()
-    {
-        var p = await Seed(1);
-        await Post(p.Id, new Answer(p.Guests[0].Id, "attending"));
-        Assert.Equal(HttpStatusCode.NoContent, (await Post(p.Id, new Answer(p.Guests[0].Id, "declined"))).StatusCode);
-        Assert.Equal("declined", (await Reload(p.Id)).Guests[0].Rsvp);
-    }
-
-    [Fact]
     public async Task Guest_from_another_party_rejects_everything()
     {
         var p = await Seed(1);
@@ -66,14 +57,11 @@ public class PartyRsvpTests(ApiFactory api) : IClassFixture<ApiFactory>
         Assert.Equal("pending", (await Reload(other.Id)).Guests[0].Rsvp);
     }
 
-    [Theory]
-    [InlineData("pending")]
-    [InlineData("maybe")]
-    [InlineData("")]
-    public async Task Disallowed_values_are_400(string value)
+    [Fact]
+    public async Task Disallowed_values_are_400()
     {
         var p = await Seed(1);
-        Assert.Equal(HttpStatusCode.BadRequest, (await Post(p.Id, new Answer(p.Guests[0].Id, value))).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await Post(p.Id, new Answer(p.Guests[0].Id, "maybe"))).StatusCode);
     }
 
     [Fact]

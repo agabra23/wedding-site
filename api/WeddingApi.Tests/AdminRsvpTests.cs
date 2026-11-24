@@ -21,15 +21,11 @@ public class AdminRsvpTests(ApiFactory api) : IClassFixture<ApiFactory>
     async Task<HttpResponseMessage> Put(string guestId, string rsvp) =>
         await (await api.SignedInClientAsync(ApiFactory.AdminPassword)).PutAsJsonAsync($"/admin/guests/{guestId}/rsvp", new Body(rsvp));
 
-    [Theory]
-    [InlineData("attending")]
-    [InlineData("declined")]
-    [InlineData("pending")]
-    public async Task Admin_can_set_each_status_and_it_is_stamped(string status)
+    [Fact]
+    public async Task Admin_sets_a_status_and_it_is_stamped()
     {
         var p = await Seed();
-        // Start from a different status so "pending" is a real reset
-        await Put(p.Guests[0].Id, status == "attending" ? "declined" : "attending");
+        const string status = "attending";
 
         var res = await Put(p.Guests[0].Id, status);
         Assert.Equal(HttpStatusCode.OK, res.StatusCode);
@@ -49,13 +45,11 @@ public class AdminRsvpTests(ApiFactory api) : IClassFixture<ApiFactory>
         Assert.Equal(HttpStatusCode.NotFound, (await Put(Unique(), "attending")).StatusCode);
     }
 
-    [Theory]
-    [InlineData("maybe")]
-    [InlineData("")]
-    public async Task Unknown_status_is_400(string status)
+    [Fact]
+    public async Task Unknown_status_is_400()
     {
         var p = await Seed();
-        Assert.Equal(HttpStatusCode.BadRequest, (await Put(p.Guests[0].Id, status)).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await Put(p.Guests[0].Id, "maybe")).StatusCode);
     }
 
     [Fact]

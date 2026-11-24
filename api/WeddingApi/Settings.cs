@@ -29,9 +29,6 @@ public static class SettingsStore
             return null;
         }
     }
-
-    public static bool IsPast(DateTime? deadline, TimeProvider clock) =>
-        deadline is { } d && clock.GetUtcNow().UtcDateTime > d;
 }
 
 public static class SettingsAdmin

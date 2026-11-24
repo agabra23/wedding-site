@@ -5,18 +5,12 @@ public record AdminRsvpRequest(string? Rsvp);
 
 public static class AdminRsvp
 {
-    static readonly string[] Allowed = [Rsvps.Pending, "attending", "declined"];
-
     public static void MapAdminRsvp(this WebApplication app)
     {
         var pk = new PartitionKey(Partitioning.Value);
 
-        // Ignores the RSVP Deadline on purpose: admins can always correct an answer
         app.MapPut("/admin/guests/{guestId}/rsvp", async (string guestId, AdminRsvpRequest req, CosmosClient cosmos, TimeProvider clock) =>
         {
-            if (!Allowed.Contains(req.Rsvp))
-                return Results.BadRequest("RSVP must be pending, attending or declined.");
-
             var container = cosmos.Container(app.Configuration);
             var query = new QueryDefinition(
                 "SELECT VALUE c.id FROM c WHERE EXISTS(SELECT VALUE g FROM g IN c.guests WHERE g.id = @id)")
@@ -30,17 +24,12 @@ public static class AdminRsvp
 
             // Read the whole Party with its etag so the replace can't clobber a concurrent change
             var read = await container.ReadItemAsync<Party>(partyId, pk);
-            var party = read.Resource;
             var etag = read.ETag;
 
-            var now = clock.GetUtcNow().UtcDateTime;
-            var updated = party with
-            {
-                Guests = party.Guests.Select(g => g.Id == guestId
-                    ? g with { Rsvp = req.Rsvp!, RsvpChangedAt = now, RsvpChangedBy = "admin" }
-                    : g).ToList()
-            };
+            var result = read.Resource.SetRsvpAsAdmin(guestId, req.Rsvp, clock.GetUtcNow().UtcDateTime);
+            if (result.Refusal is { } refusal) return refusal.ToHttp();
 
+            var updated = result.Value;
             try
             {
                 await container.ReplaceItemAsync(updated, updated.Id, pk, new ItemRequestOptions { IfMatchEtag = etag });
@@ -48,7 +37,7 @@ public static class AdminRsvp
             }
             catch (CosmosException e) when (e.StatusCode == HttpStatusCode.PreconditionFailed)
             {
-                return Results.Conflict("This party was just changed elsewhere. Please try again.");
+                return Results.Conflict(RefusalResults.ChangedElsewhere);
             }
         }).RequireAuthorization(Policies.Admin);
     }
