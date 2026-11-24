@@ -1,8 +1,6 @@
 /// <summary>The one place a <see cref="Refusal"/> becomes an HTTP response.</summary>
 public static class RefusalResults
 {
-    public const string ChangedElsewhere = "This party was just changed elsewhere. Please try again.";
-
     public static IResult ToHttp(this Refusal refusal) => refusal switch
     {
         Refusal.NotFound => Results.NotFound(),
@@ -11,6 +9,7 @@ public static class RefusalResults
         Refusal.GuestNotInParty => Results.BadRequest("A guest does not belong to this party."),
         Refusal.InvalidRsvp r => Results.BadRequest($"RSVP must be {OneOf(r.Allowed)}."),
         Refusal.BlankName => Results.BadRequest("Every guest needs a first and last name."),
+        Refusal.ChangedElsewhere => Results.Conflict("This party was just changed elsewhere. Please try again."),
         _ => throw new ArgumentOutOfRangeException(nameof(refusal), refusal, null),
     };
 

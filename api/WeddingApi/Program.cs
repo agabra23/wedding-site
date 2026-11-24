@@ -31,6 +31,10 @@ builder.Services.AddSingleton(_ => new CosmosClient(
         ConnectionMode = config.GetValue<bool>("CosmosGatewayMode") ? ConnectionMode.Gateway : ConnectionMode.Direct,
     }));
 
+builder.Services.AddSingleton(sp => Database.From(sp.GetRequiredService<CosmosClient>(), config));
+builder.Services.AddSingleton<SettingsStore>();
+builder.Services.AddScoped<PartyStore>();
+
 builder.Services.AddCors(o => o.AddDefaultPolicy(p => p
     .WithOrigins(config.GetSection("AllowedOrigins").Get<string[]>() ?? [])
     .AllowAnyHeader()

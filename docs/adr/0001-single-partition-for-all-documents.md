@@ -6,3 +6,4 @@ Every document (Party documents, which embed their Guests, and the single Settin
 
 - The partition key looks pointless, because it never varies. That's deliberate; don't "fix" it.
 - A container's partition key can't be changed in place, so the prod and dev `parties` containers were recreated (while still empty) when we made this switch.
+- The unique-name check reads the whole Guest List, but it isn't atomic across Parties: two concurrent adds or renames could create a duplicate. We accept this because only Admins write names, so we don't use name-claim documents.
