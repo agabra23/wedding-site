@@ -15,18 +15,18 @@ public static class Revocations
 {
     static string DocumentId(string jti) => Revocation.IdPrefix + jti;
 
-    public static async Task Revoke(Container container, string jti, long exp, TimeProvider clock)
+    public static async Task Revoke(Database db, string jti, long exp, TimeProvider clock)
     {
         var secondsLeft = exp - clock.GetUtcNow().ToUnixTimeSeconds();
         var ttl = (int)Math.Max(1, secondsLeft);
-        await container.UpsertItemAsync(new Revocation(DocumentId(jti), exp, ttl), new PartitionKey(Partitioning.Value));
+        await db.Container.UpsertItemAsync(new Revocation(DocumentId(jti), exp, ttl), Database.Key);
     }
 
-    public static async Task<bool> IsRevoked(Container container, string jti)
+    public static async Task<bool> IsRevoked(Database db, string jti)
     {
         try
         {
-            await container.ReadItemAsync<Revocation>(DocumentId(jti), new PartitionKey(Partitioning.Value));
+            await db.Container.ReadItemAsync<Revocation>(DocumentId(jti), Database.Key);
             return true;
         }
         catch (CosmosException e) when (e.StatusCode == HttpStatusCode.NotFound)

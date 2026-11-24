@@ -188,6 +188,8 @@ public abstract record Refusal
     public sealed record GuestNotInParty : Refusal;
     public sealed record InvalidRsvp(IReadOnlyList<string> Allowed) : Refusal;
     public sealed record BlankName : Refusal;
+    /// <summary>Another request changed the Party since it was loaded, so nothing was saved.</summary>
+    public sealed record ChangedElsewhere : Refusal;
 }
 
 /// <summary>Either a value or the <see cref="Refusal"/> that stopped it.</summary>
